@@ -1,0 +1,1332 @@
+#!/usr/bin/perl -w
+
+#
+# Version 1.0
+#
+# imapbiff: check for new mail in an imap account.
+#
+# Released under the GNU GPL.  A text version of the GPL should have come
+# with this program in the file "COPYING".
+# Copyright 2000 Michael Arndt
+#
+
+use strict;
+use IO::Socket;
+use Getopt::Std;
+use POSIX;
+use Tk;
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e);
+
+#
+# Set up signal handling.
+#
+$SIG{'ALRM'} = sub { die "socket timeout" };
+$SIG{'QUIT'} = 'cleanup';
+$SIG{'HUP'}  = 'cleanup';
+$SIG{'INT'}  = 'cleanup';
+$SIG{'KILL'} = 'cleanup';
+$SIG{'TERM'} = 'cleanup';
+
+#
+# Global variables.
+#
+my ($host,$port,$handle,$baseline,$beep,$use_ssl);
+my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
+my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
+my ($prog);
+$prog = $0;
+$prog =~ s,.*/,,g;
+
+# 
+# Set defaults.
+#
+$host      = "";
+$port      = 143;
+$handle    = 0;
+$baseline  = 0;
+$beep      = 1;
+$use_ssl   = 0;
+$logged_in = 0;
+
+#
+# Get user supplied parameters.  The command line overrides the .imapbiffrc.
+#
+help() unless getopts("h:u:s:dqe");
+if ( -f "$ENV{'HOME'}/.imapbiffrc") {
+	open (RC, "<$ENV{'HOME'}/.imapbiffrc") or error("$prog: Error opening .imapbiffrc",1);
+	while(<RC>) {
+		$host     = $1 if /host\s+(\S+)/;
+		$user     = $1 if /user\s+(\S+)/;
+		$sleep    = $1 if /sleep\s+(\d+)/;
+		$password = $1 if /password\s+(\d+)/;
+		$beep     = 0  if /nobeep/;
+		$use_ssl  = 1  if /use_ssl/;
+	}
+	close(RC);
+}
+$host    = $opt_h if ($opt_h);
+$user    = $opt_u if ($opt_u);
+$user    = $ENV{'USER'} if (! $user);
+$sleep   = $opt_s if ($opt_s);
+$sleep   = 120 if (! $sleep);
+$beep    = 0 if ($opt_q);
+$use_ssl = 1 if ($opt_e);
+$sleepms = $sleep * 1000;
+help() if (! $host);
+if ($use_ssl) {
+	print STDERR "Using SSL.\n" if $opt_d;
+	$port = 993;
+	require IO::Socket::SSL;
+}
+
+#
+# Become a daemon process and start going to work, unless in debug.
+#
+if (! $opt_d) {
+	my $pid = fork;
+	exit if $pid;
+	die "Couldn't fork: $!\n" unless defined($pid);
+	POSIX::setsid() or error("$prog: Can't start a new session: $!",1);
+}
+$MW = new MainWindow;
+$MW->title("imapbiff");
+$MW->iconname("imapbiff");
+$MW->wm("geometry", "58x58");
+$MW->resizable(0,0);
+$frame = $MW->Frame->pack(-expand => 'true', -fill => 'both');
+$canvas = $frame->Canvas(-width  => "48",
+                         -height => "48",
+                         -bd     => 10,
+                         -relief => "sunken",
+                         )->pack(-expand=>'yes', -fill=>'both');
+$button = $canvas->Button(-command => sub { down(); });
+$canvas->create( "window", "0", "0",
+                 -window => $button,
+                 -anchor => 'nw',
+                );
+define_pixmaps();
+$button->bind("<Button-3>", \&check_now);
+$button->configure(-image => $down);
+$current = \$down;
+$repeat  = $button->repeat(1000, \&update);
+print STDERR "repeat set to 1sec for now.\n" if $opt_d;
+MainLoop;
+
+#
+# Subroutine to update status.
+#
+sub update {
+	my ($new_messages);
+	$button->configure(-image => $checking);
+	DoOneEvent;
+	DoOneEvent;
+	while (! $handle) {
+		setup_socket();
+	}
+	print STDERR "Socket is setup.\n" if $opt_d;
+	if ($logged_in) {
+		$new_messages = check_imap();
+	} else {
+		print STDERR "canceling repeat.\n" if $opt_d;
+		$button->afterCancel($repeat);
+		$repeat = 0;
+		while (! $logged_in) {
+			get_password();
+			login();
+		}
+		$new_messages = check_imap();
+		$repeat = $button->repeat($sleepms, \&update);
+		print STDERR "repeat set to $sleepms.\n" if $opt_d;
+	}
+	$new_messages = 0 if (! $new_messages);
+	if ($new_messages eq "-1") {
+		print STDERR "check_imap returned an error, no updates.\n" if $opt_d;
+	} elsif ($baseline == $new_messages) {
+		print STDERR "no changes...\n" if $opt_d;
+	} elsif ($new_messages > $baseline) {
+		$current  = \$up;
+		$button->bell if ($beep);
+		$baseline = $new_messages;
+		print STDERR "biff set, baseline set to $baseline\n" if $opt_d;
+	} else {
+		$current  = \$down;
+		$baseline = $new_messages;
+		print STDERR "biff unset, baseline set to $baseline\n" if $opt_d;
+	}
+	if ($new_messages >= 0) {
+		print STDERR "You have $new_messages new message(s)\n" if $opt_d;
+	}
+	$button->configure(-image => $$current);
+	return 1;
+}
+
+#
+# Subroutine to initiate a check from a button 2 press.
+#
+sub check_now {
+	print STDERR "doing an immediate check\n" if $opt_d;
+	$button->afterCancel($repeat);
+	$repeat = 0;
+	update();
+	$repeat = $button->repeat($sleepms, \&update);
+	return 1;
+}
+
+#
+# Subroutine to setup socket handle.
+#
+sub setup_socket {
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		print STDERR "Setting up socket..." if $opt_d;
+		if ($use_ssl) {
+			print STDERR "Using ssl..." if $opt_d;
+			$handle = IO::Socket::SSL->new(Proto           => "tcp",
+			                               SSL_verify_mode => 0x00,
+                                                       PeerAddr        => $host,
+			                               PeerPort        => $port,
+		                               	)
+			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		} else {
+			$handle = IO::Socket::INET->new(Proto    => "tcp",
+			                                PeerAddr => $host,
+                                                        PeerPort => $port,
+		                               	)
+			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		}
+		$handle->autoflush(1);    # So output gets there right away.
+		print STDERR ".done\n" if $opt_d;
+		receive();
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return;
+		} else {
+			error("$prog: $@",0);
+			return;
+		}
+	} 
+	return 1;
+}
+
+#
+# Subroutine to login to the mailbox.
+# 
+sub login {
+	my ($response,$success);
+	$logged_in = 0;
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		send_data("A001 LOGIN \"$user\" \"$password\"","\"$user\"");
+		while (1) {
+			($success,$response) = receive();
+			if (! $success) {
+				return 0;
+			}
+			last if $response =~ /LOGIN|OK/;
+		}
+		if ($response =~ /fail|BAD/) {
+			return 0;
+		} else {
+			$logged_in = 1;
+		}
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return 0;
+		} else {
+			error("$prog: $@",0);
+			return 0; 
+		}
+	} 
+	return 1;
+}
+
+#
+# Subroutine that does check of imap mailbox.
+#
+sub check_imap {
+	my ($response,$success);
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		send_data("A003 STATUS INBOX (UNSEEN)");
+		while (1) {
+			($success,$response) = receive();
+			if (! $success) {
+				return "-1";
+			}
+			last if $response =~ /STATUS\s+.*?\s+\(UNSEEN/;
+		}
+		($new_messages) = $response =~ /\(UNSEEN\s+(\d+)\)/;
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return "-1";
+		} else {
+			error("$prog: $@",0);
+			return "-1";
+		}
+	} 
+	return $new_messages;
+}
+
+#
+# Subroutine to put flag down and save baseline status.
+#
+sub down {
+	$button->configure(-image => $down);
+	$current  = \$down;
+	$baseline = $new_messages if ($new_messages);
+	print STDERR "baseline set to $baseline\n" if $opt_d;
+	return 1;
+}
+
+#
+# Subroutine to get user's password.
+#
+sub get_password {
+	my ($w1,$entry);
+	$w1 = $MW->Toplevel;
+	$w1->Message(-bg  => "black",
+                 -fg      => "green",
+                 -width   => "400",
+                 -justify => "center",
+                 -text    => "Enter password for\n$user at $host",
+                 )->pack(-side => 'top', -fill => 'both');
+	$entry = $w1->Entry(-relief=>"sunken",
+                    -bg    => "grey",
+                    -fg    => "black",
+                    -width => "30",
+                    -show  => "*",
+                   )->pack(-side => 'top');
+	$w1->Button(-text => "OK",
+                -command  => sub { $password=$entry->get; $w1->destroy },
+               )->pack(-side => 'bottom');
+	$MW->waitVariable(\$password);
+	DoOneEvent;
+	return 1;
+}
+
+#
+# Subroutine to send a line to the imap server.
+# Block everything after $block.
+#
+sub send_data {
+	my ($line,$block) = (@_);
+	print $handle "$line\r\n";
+	$line =~ s/(.*$block).*/$1 ----/ if ($block);
+	print STDERR "sent: $line\n" if $opt_d;
+	return 1;
+}
+
+#
+# Subroutine to get a response from the imap server and print.
+# that response if in debug mode.
+#
+sub receive {
+	my ($response,$success);
+	$response = "";
+	$success  = 0;
+	chomp($response = <$handle>);
+	if ($response) {
+		print STDERR "got: $response\n" if $opt_d;
+		$success = 1;
+	} else {
+		print STDERR "no response!\n" if $opt_d;
+	}
+	return ($success,$response);
+}
+
+#
+# Subroutine to display and error message in a text box and exit.
+#
+sub error {
+	my ($error,$fatal) = (@_);
+	my ($w1,$wait);
+	$button->afterCancel($repeat);
+	$w1 = $MW->Toplevel;
+	$w1->Message(-width => "300",
+	             -text  => "$error",
+                 )->pack(-side => 'top');
+	if ($fatal) {
+		$w1->Button(-text    => "OK",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$MW->destroy;
+		exit;
+	} else {
+		$w1->Button(-text    => "Continue",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$w1->Button(-text    => "Exit",
+		            -command => "exit",
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$w1->destroy;
+		$repeat = $button->repeat($sleepms, \&update);
+		$handle = 0;
+		return 1;
+	}	
+}
+
+#
+# Subroutine to call when alarm times out.
+#
+sub alarm {
+	print STDERR "Alarm went off!\n" if $opt_d;
+	return 1;
+}
+
+#
+# Subroutine to clean up and exit if we are signalled.
+#
+sub cleanup {
+	if ($handle) {
+		send_data("A999 LOGOUT");
+	}
+	print STDERR "Exiting by user request.\n";
+	exit;
+}
+
+#
+# Subroutine to print help screen and exit.
+#
+sub help {
+	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d]\n";
+}
+
+#
+# Subroutine that puts pixmap data into place.
+#
+sub define_pixmaps {
+	if ($use_ssl) {
+		$up = $canvas->Pixmap(-data => '
+/* XPM */
+static char *upssl2[] = {
+/* width height num_colors chars_per_pixel */
+"    48    48      243            2",
+/* colors */
+".. c #0c0306",
+".# c #0c8a0c",
+".a c #840a14",
+".b c #2c4624",
+".c c #480912",
+".d c #84868c",
+".e c #0e230a",
+".f c #444294",
+".g c #c44664",
+".h c #270508",
+".i c #ca1d3e",
+".j c #64628c",
+".k c #ec8aac",
+".l c #110c47",
+".m c #4a8426",
+".n c #4c4e4c",
+".o c #892b3d",
+".p c #acae5c",
+".q c #24265c",
+".r c #0f140b",
+".s c #196416",
+".t c #4c4bd3",
+".u c #d43858",
+".v c #8483d8",
+".w c #281038",
+".x c #ea1a44",
+".y c #443e94",
+".z c #0c340c",
+".A c #049304",
+".B c #c8ccc8",
+".C c #4952b9",
+".D c #690a11",
+".E c #a82b43",
+".F c #446e24",
+".G c #291514",
+".H c #0f0c31",
+".I c #a6203d",
+".J c #137613",
+".K c #9195d7",
+".L c #441249",
+".M c #c62343",
+".N c #26221a",
+".O c #efc5d8",
+".P c #5a090d",
+".Q c #121232",
+".R c #168512",
+".S c #39080d",
+".T c #1b1754",
+".U c #190305",
+".V c #34424c",
+".W c #939794",
+".X c #4c48b4",
+".Y c #50828c",
+".Z c #bc1e3c",
+".0 c #142625",
+".1 c #bcba64",
+".2 c #847ee1",
+".3 c #5c6a6c",
+".4 c #0f1d0b",
+".5 c #15940e",
+".6 c #a43c50",
+".7 c #e5244a",
+".8 c #545397",
+".9 c #7372d0",
+"#. c #9c99e1",
+"## c #241d51",
+"#a c #243324",
+"#b c #544cb0",
+"#c c #245224",
+"#d c #4b0f17",
+"#e c #9c4054",
+"#f c #39396f",
+"#g c #156d17",
+"#h c #5052fb",
+"#i c #1d751b",
+"#j c #da2345",
+"#k c #280b0e",
+"#l c #fcfe26",
+"#m c #3a1144",
+"#n c #a53347",
+"#o c #dcdbdc",
+"#p c #178c0d",
+"#q c #0d2b0b",
+"#r c #d7193c",
+"#s c #972d44",
+"#t c #d1d5e1",
+"#u c #1a186c",
+"#v c #4c4ebc",
+"#w c #7c826c",
+"#x c #5452a7",
+"#y c #c35e74",
+"#z c #6264b1",
+"#A c #348a34",
+"#B c #8482e4",
+"#C c #b72543",
+"#D c #bcbabc",
+"#E c #1c1d12",
+"#F c #273a21",
+"#G c #246d20",
+"#H c #0c0a0b",
+"#I c #404541",
+"#J c #460a1e",
+"#K c #f71544",
+"#L c #74728c",
+"#M c #580e16",
+"#N c #140e0c",
+"#O c #149a17",
+"#P c #676bbc",
+"#Q c #ebadc5",
+"#R c #842244",
+"#S c #d4d244",
+"#T c #1c0f49",
+"#U c #4c5a58",
+"#V c #a4a8c8",
+"#W c #323264",
+"#X c #5452e3",
+"#Y c #2a154f",
+"#Z c #68303c",
+"#0 c #b42b44",
+"#1 c #3c1218",
+"#2 c #1c0d32",
+"#3 c #ab2641",
+"#4 c #0f7c0f",
+"#5 c #9492ee",
+"#6 c #c82a4c",
+"#7 c #bc667c",
+"#8 c #b4ba64",
+"#9 c #789c74",
+"a. c #44961c",
+"a# c #74727c",
+"aa c #ec9bb8",
+"ab c #b4b6c4",
+"ac c #bcc2f4",
+"ad c #6c82a4",
+"ae c #d04064",
+"af c #2c7e2c",
+"ag c #38881c",
+"ah c #648a7c",
+"ai c #646264",
+"aj c #349a3c",
+"ak c #cc4664",
+"al c #792941",
+"am c #c9768c",
+"an c #7c7abc",
+"ao c #bcbef4",
+"ap c #6c72b4",
+"aq c #e3e1f8",
+"ar c #d4d2f4",
+"as c #7677b0",
+"at c #444a8c",
+"au c #283244",
+"av c #449e4c",
+"aw c #444470",
+"ax c #9c9c9c",
+"ay c #ecb7cc",
+"az c #86908e",
+"aA c #d4ce54",
+"aB c #248e0c",
+"aC c #2c1c0c",
+"aD c #4c8e6c",
+"aE c #8f91b7",
+"aF c #8d8ceb",
+"aG c #7c8e98",
+"aH c #980e1c",
+"aI c #9b243d",
+"aJ c #e44264",
+"aK c #7a0a14",
+"aL c #34271a",
+"aM c #dcdc53",
+"aN c #543e74",
+"aO c #749a94",
+"aP c #141264",
+"aQ c #1c371c",
+"aR c #3c0e2c",
+"aS c #8c96b4",
+"aT c #a4a2e4",
+"aU c #8c8ecc",
+"aV c #141c24",
+"aW c #5c5d8f",
+"aX c #1f5d1c",
+"aY c #973347",
+"aZ c #d4dbde",
+"a0 c #5c5eac",
+"a1 c #414c41",
+"a2 c #d3516e",
+"a3 c #647ea4",
+"a4 c #1c261c",
+"a5 c #1c1615",
+"a6 c #6c6c78",
+"a7 c #343234",
+"a8 c #1c2b1c",
+"a9 c #343e2f",
+"b. c #e43356",
+"b# c #cccafc",
+"ba c #247e1c",
+"bb c #343258",
+"bc c #bc5264",
+"bd c #548234",
+"be c #949294",
+"bf c #2c2a1a",
+"bg c #1c1e49",
+"bh c #348e3c",
+"bi c #ec93b4",
+"bj c #4c5654",
+"bk c #fcfa3e",
+"bl c #7c7cd8",
+"bm c #24922c",
+"bn c #2c1644",
+"bo c #162a28",
+"bp c #a84258",
+"bq c #e72a54",
+"br c #9e9ee2",
+"bs c #3c3e71",
+"bt c #e4e6f4",
+"bu c #cc5e74",
+"bv c #44526c",
+"bw c #080616",
+"bx c #c41e54",
+"by c #a42a54",
+"bz c #c72351",
+"bA c #1c061a",
+"bB c #4a49bd",
+"bC c #141e18",
+"bD c #1a9520",
+"bE c #2c0a20",
+"bF c #bc2354",
+"bG c #606078",
+"bH c #4c4ea4",
+"bI c #098e0a",
+"bJ c #dc2a4c",
+"bK c #db1e44",
+"bL c #ecb2ca",
+"bM c #e4a2bc",
+"bN c #787eac",
+"bO c #e51e44",
+"bP c #949e94",
+"bQ c #646a80",
+"bR c #dce2e4",
+"bS c #f41a44",
+"bT c #34327c",
+"bU c #949ae4",
+"bV c #7c7a7c",
+"bW c #544ec4",
+/* pixels */
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.C#x#x#x#x#x#x#x#x#v#X#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X#X#X#XbW#u.l.l.H.Q.H.Q.H.l#u#v#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.t.C.CbW.C#TbwbC#E#E#E#E#Ebw.lbB#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.t.X.T#Y#YbnaN.Q#N.paA#S#SaA#8#E.HbB#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#XbB#u#2bE#J#R#M#1.UaCaAbk#l#lbkaM.N.H.X#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X#X.X#YbE.caI#Cbz#C.o.SaCaAbk#l#lbkaMbf.H.X#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.X#YaRaI.ZbK.x.xbK.E#J.G#8aMaMaMaM.1.N.HbH#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X#b#Y#JaIbK#K#K#K#K.x#0.c.haCaLaCbfbfa4bw.HbB#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.X#Y#J.IbK.x#K#K#K#K.x#C.c.U.U.S.S.U#H.H.HaP.t#X#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X#X#b#Y#JaIbK#K#K#K#K#K#KbO#C.c.UbAal.o.wawat.X.t.t#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#h#h#X.X#Y#JaI#j.x#K#K#K#K#K#K.x#C.c.h.haY#s.w#b#X#X#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#X#X.X#ubA#Zby.i#rbK#K#K#K#K#KbO#C.c.U.Ual#d#TbH#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#h#X.X.T....#k.S.S#M.I.MbK#K#K#K.x#C.c.U.U#k.U.lbB#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#h#h#XbB.TbA.h.S.h.S.S.c.P.D.Z#r#K#KbO#C.c.U...UbA.H.X#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#X#XbB.TbA#JaI.Z.Z.Z.Z.I.D.P.D.ZbK.x.x#C.c.U.U.cal#T.X#X#h#h#X#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#X#v#ubA.S.IbK.x#K#K.xbO.ZaI.P.D.ibK#j.E.S.U.haIby#m#v#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#h#X.X#2.c.IbK.x#K#K#K#K.xbObz.D.P#s#6#3#d.U...h#CbF#m.X#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#hbW.TbEaIbK.x.x.x.x.x.x.x.xbO.I.P.c.o.P.h.....h.ZbF#m#v#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#h#X.X.w.c.Z.xbK.ibz#0#C.M.ibObO.M.P.h.S.h.h.U...S.ZbF.L.X#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#X.taPbE.obK.xbKaHaK.D.DaKaH#r.xbK#s.S.h#k#Z#k.U.h.ZbF.LbB#X#X#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#XbW#T.S#3bK#K#K#r.iaK.a.Z#r#K#K.x#0.P.S.oaY#1.U.S.ZbF#m#b#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#XbB#T.S#3bK#K#K#K#r#r.ibK#K#K#KbK#C.P.PaYaY.c.h.S.ZbF.L.X#X#h#h#h#h#h#h#h#h#h#h#h",
+"#h#h#h#h#h#h#h#X#v#T#J#3.x#K#K.x#K.x.x#K.x#K#K.x#C.D.P#s#n.P.h.P.ibF#m.X#X#h#h#h#h#h#h#h#h#h#h#h",
+".C.C.C#v#v.C#b.Cat#2.S.E.ubJbq.7.xbq.x.xbqbObq#j#0.P.P.E.EaK.PaI#rbxaRat.C.C.C#v#v#v#v#v#v#v.C.C",
+".0.0.0.0bo.0bo.0bCbw.S.6bMbubiaeak.kaJb..ka2bi.g.E.P.P#3#j.i.i.x.x.i.SbCbC.0bo.0.0.0.0.0.0.0.0.0",
+".J#g#g#g#g#g#g#G#c.r.S#e.O.O.O#ybMamaaa2#Q#y#Qbc#n.P.P#3bK#K#K#K.x#C.G#c#G#g#g#g#g#g#g#g#g#g#g#g",
+".#.R.#.#.#.#.#.R#G.4.S#eayamay#7.O.O.ObubL#y#QbcaY.P.D#3.x#K#K.xbOaI.G#G.R.#.##p.#.##p.#.##p.#.#",
+"bI.A.A.A.A.AbI.#.J.4.S.6#Q#y#Q#yayam#Q#y#Q#y#Q#y#n.P.P#3.x#K#KbK#C#d.e.JbIbIbI.AbI.A.A.A.A.A.A.A",
+".A.A.A.AbI.A.AbI#i.4.hbpaaa2aaa2aaa2aaa2bia2bL#Qbp.P.P#CbK.xbO#3#d.4.s.#bIbI.A.A.A.AbI.AbI.A.A.A",
+".A.A.A.A.A.AbI.#.J.4.S.E.ubJb..7.ubJbqbJb.bJae.g#n.D.P#3#jbK#C.c#E.s#4.#bIbIbI.##p#p#p#p#pbI.A.A",
+".A.A.A.A.A.A.AbI.J.r.S#3#j.x.x.x#K.xbS.x.x.x.x#j.E.P.P#3.M#C#d.4.s.RbIbI.5.5.5ag.m.m.m.ma.aB#p.A",
+".A.A.A.A.A.AbI.#.J.4.S#3.x#K#K#K#K#K#K#K#K#K#KbO#C.P.PaY#s#M.4aX.RbI.A#O#9az#wa1#Fa9a8#F.F.5.A.5",
+".A.A.A.A.A.A.AbI.J.4.S#3#j#K#K#K#K#K#K#K#K#K#KbK#C.P.c#Z#d#NaX#4.AbIbD#9aZbRaZ.B.BabaE.d.3.b.5.5",
+".A.A.A.A.A.A.AbI.J.4#k.o#C.i.i.i.i.i.i.i.i.i.M#C#s.c.h#ka5.4.J.AbIbI#OazbR#D.da6a6a6asaUbGbo#p#p",
+".A.A.A.A.A.A.AbI#4.z#H#k.S.S.S.S.S.S.S.S.S.S.S.S#k.U..aL.WaQ.JbI.AbIbDazaZaz.nbj#U#UaWan.jbobIaB",
+".A.A.A.A.A.A.AbIbI#g#q.4.r.4.r.4.r.r.r#Ha5.Ua5.Ua5bwbfax.n.4.JbIbIbI.5aGaZbV.n.A.A.AawasaWa4#paB",
+".A.A.A.A.A.A.AbIbIbI#4.J.J#4.J.J.J#gaXa8.W#Ibeaube#Iaxai.W#a.J.A.AbIbmaG#ta#a1.A.A.AbvasaWa4#p.m",
+".A.A.A.A.A.A.A.A.AbIbIbIbIbIbIbIbI.#.J.ea1ax.na5#Iaxaiax.n.4#i.A#OajaOaS#VbG.V#AbhbhaWapaWauafbd",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbI.JaQ.WbGaxa7beaiaxaiax#a#gbIaDadaSbraSa#bGaia6#LbNanaW#W.V#a",
+".A.A.A.A.A.A.A.A.AbI.A.A.A.A.A.A.A.##i#qa1ax.na5#Iaxaiax.n.4#G.A.Y.Kacbtaq#t#taZ#o#tarbrapbsbbbg",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.#.J#a.Wai.Wa7beaiaxaiax#a#G.A.Y#.b#aq#V#.br#.br#.#..va0#f#Wbg",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.#.J#qa1ax.na5#Iaxaiax#I.e#G.Aa3bUb#aq.K.v.v.2.vbl.vbla0#f#Wbg",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbI#iaQbPaiaxa7beaiax#I#q.saf.Aa3bUb#aqaT#5aFaF#5#5aFaFapbs#Wbg",
+".A.A.A.AbI.A.A.A.A.A.A.A.A.A.A.A.AbI#4.za9ax.n#N#Iax#I.e.s.R.R.AadbUb#aq.v.9.9.9.9.9.9.9a0#fbb##",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbIbI.J#qa9.Wa7.W#I#q.s.#.#ba.Aad#.b#aqaF.2.2.2.2.2.2bl#z#f#Wbg",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbI.##g#qaQ.eaQ#q.s.#bI#p#p.Aad.Kaob##.#BaFaFaFaFaF.vap#fau##",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbIbI#4.J.J.J#4bIbIbIbI.R.5ahaU#.#.ap#P#P#P#z#P#P#z.8#Wbbbo",
+".A.A.A.A.A.A.A.A.A.A.A.A.A.A.A.AbI.A.A.AbI.AbIbI.AbIbI.A.AbI#p#OavbQ.8bH.f.y.y.y.y.ybT.qbg.QaVa1"
+};
+');
+		$down = $canvas->Pixmap(-data => '
+/* XPM */
+static char *downssl2[] = {
+/* width height num_colors chars_per_pixel */
+"    48    48      244            2",
+/* colors */
+".. c #04060d",
+".# c #0c7810",
+".a c #880c18",
+".b c #313e2f",
+".c c #44080f",
+".d c #84869c",
+".e c #0c230c",
+".f c #4844a2",
+".g c #120f52",
+".h c #44802c",
+".i c #24030b",
+".j c #b4b24c",
+".k c #61618f",
+".l c #ca1e43",
+".m c #444644",
+".n c #049304",
+".o c #4d4ad0",
+".p c #7c9880",
+".q c #0f140b",
+".r c #882440",
+".s c #2c3149",
+".t c #248214",
+".u c #54538f",
+".v c #2c122c",
+".w c #ab2542",
+".x c #1c5c1c",
+".y c #2e2c2a",
+".z c #742644",
+".A c #747684",
+".B c #446e3c",
+".C c #670b10",
+".D c #241214",
+".E c #0c8a0c",
+".F c #b4b8c8",
+".G c #140a2c",
+".H c #7c7ccc",
+".I c #4944b2",
+".J c #340509",
+".K c #f21744",
+".L c #9196c1",
+".M c #d4d5e5",
+".N c #0e330a",
+".O c #a62f46",
+".P c #249214",
+".Q c #540911",
+".R c #6665b6",
+".S c #146e1b",
+".T c #2e1554",
+".U c #505458",
+".V c #14132c",
+".W c #190509",
+".X c #b72542",
+".Y c #898fc4",
+".Z c #142624",
+".0 c #4b4bb1",
+".1 c #c7294a",
+".2 c #5052fa",
+".3 c #16890d",
+".4 c #201e88",
+".5 c #3c3e60",
+".6 c #444274",
+".7 c #0c1c0b",
+".8 c #749294",
+".9 c #390921",
+"#. c #201550",
+"## c #4953b1",
+"#a c #a4a6dc",
+"#b c #ccded4",
+"#c c #127f12",
+"#d c #169413",
+"#e c #943244",
+"#f c #7476b1",
+"#g c #646264",
+"#h c #1f6c1c",
+"#i c #5c7654",
+"#j c #db1d42",
+"#k c #5456d0",
+"#l c #9c9a6c",
+"#m c #9b233d",
+"#n c #243922",
+"#o c #c4c6c4",
+"#p c #9f9cd2",
+"#q c #580e17",
+"#r c #6c71bc",
+"#s c #5c6a64",
+"#t c #a71e3c",
+"#u c #440b26",
+"#v c #2a091e",
+"#w c #686c94",
+"#x c #390a0c",
+"#y c #2c9e14",
+"#z c #0c0a08",
+"#A c #245624",
+"#B c #0c2c0b",
+"#C c #343664",
+"#D c #298a17",
+"#E c #a82a43",
+"#F c #708480",
+"#G c #1c0d3a",
+"#H c #8e8cec",
+"#I c #544ab8",
+"#J c #188e0e",
+"#K c #494d4d",
+"#L c #245e18",
+"#M c #8583d2",
+"#N c #e41e44",
+"#O c #140c0c",
+"#P c #b72a41",
+"#Q c #1c1c13",
+"#R c #1c1a5c",
+"#S c #982a3f",
+"#T c #4c0f14",
+"#U c #808c9c",
+"#V c #474b91",
+"#W c #2a0a0e",
+"#X c #323232",
+"#Y c #7c0914",
+"#Z c #5445b3",
+"#0 c #3c050c",
+"#1 c #5c080e",
+"#2 c #192a27",
+"#3 c #4c4ec0",
+"#4 c #1e165e",
+"#5 c #5c5aac",
+"#6 c #dfe2e4",
+"#7 c #cac8f6",
+"#8 c #9c9ae4",
+"#9 c #1c761b",
+"a. c #64a26c",
+"a# c #ccca58",
+"aa c #519d5f",
+"ab c #688674",
+"ac c #249234",
+"ad c #989998",
+"ae c #c0c0f0",
+"af c #478e29",
+"ag c #344e2c",
+"ah c #949294",
+"ai c #36a030",
+"aj c #3c7e24",
+"ak c #391119",
+"al c #38123e",
+"am c #3c8e24",
+"an c #389444",
+"ao c #3c3e74",
+"ap c #7c969c",
+"aq c #bb1d3d",
+"ar c #3c422c",
+"as c #5c5a64",
+"at c #6c7e74",
+"au c #6c6b79",
+"av c #5ca654",
+"aw c #980e1c",
+"ax c #b82e48",
+"ay c #7c7fb7",
+"az c #1c161a",
+"aA c #548a44",
+"aB c #1c371c",
+"aC c #343854",
+"aD c #1b1d33",
+"aE c #464b7f",
+"aF c #246418",
+"aG c #749e7c",
+"aH c #54863c",
+"aI c #6462ac",
+"aJ c #6f7da3",
+"aK c #545870",
+"aL c #5c5f7f",
+"aM c #747294",
+"aN c #e0dff6",
+"aO c #146614",
+"aP c #d4d664",
+"aQ c #1c2b1c",
+"aR c #d4cef4",
+"aS c #70303c",
+"aT c #9c9f9c",
+"aU c #fc1344",
+"aV c #74aa6c",
+"aW c #3c4a54",
+"aX c #3c124c",
+"aY c #1c8218",
+"aZ c #7471d4",
+"a0 c #606c80",
+"a1 c #c42246",
+"a2 c #585a8c",
+"a3 c #d7dadc",
+"a4 c #c8ced4",
+"a5 c #748a8c",
+"a6 c #8c9694",
+"a7 c #444460",
+"a8 c #2c4624",
+"a9 c #646abd",
+"b. c #117211",
+"b# c #acaecc",
+"ba c #1c9a1c",
+"bb c #1c721c",
+"bc c #a4a2dc",
+"bd c #9492e4",
+"be c #3c563c",
+"bf c #348614",
+"bg c #7476cc",
+"bh c #4c4ce0",
+"bi c #34325b",
+"bj c #281040",
+"bk c #a42450",
+"bl c #2c2a38",
+"bm c #120d3e",
+"bn c #807ee4",
+"bo c #4c46bf",
+"bp c #19061c",
+"bq c #bc2254",
+"br c #182238",
+"bs c #141e1c",
+"bt c #4653c1",
+"bu c #9c2654",
+"bv c #080c1c",
+"bw c #3c3a7a",
+"bx c #248d27",
+"by c #748694",
+"bz c #285c28",
+"bA c #8583e4",
+"bB c #180c24",
+"bC c #4c4da4",
+"bD c #1c1a44",
+"bE c #14164c",
+"bF c #606690",
+"bG c #8c2a3c",
+"bH c #6c7e8c",
+"bI c #0a8e08",
+"bJ c #0c3a0c",
+"bK c #da2244",
+"bL c #a4a264",
+"bM c #646684",
+"bN c #e4e6f4",
+"bO c #9496d4",
+"bP c #441234",
+"bQ c #6c8e74",
+"bR c #5452e2",
+"bS c #3c443e",
+"bT c #0c0412",
+"bU c #147616",
+"bV c #4c0a15",
+"bW c #142314",
+"bX c #2c0604",
+/* pixels */
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bRbRbR.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#3#3#3.obR.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR.obo#4bjbj#.#Z.o.obRbR.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bRbo#R#G.9#u.r#qbPbj#..f.obRbR.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bRbR#I#.#v.c#S.X.lbq#m.Q#0al#.#ZbR.2.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#Z#.#u#maq#j#N#N.KbK.laqbu#u.T#ZbR.2.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#Z.T#u#m#j.KaU.KaU.KaU.K.K#j#m.9.g.obR.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#Z.T.9bk#j.K.KaU.KaUaUaUaU.K.Ka1#qbjbobR.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#Z.Tak#t#j.KaU.KaUaUaUaUaU.KaU.K#jbubj.0bR.2.2.2bRbR.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2.2bR#Z#.#u#mbK.K.KaUaUaU.KaU.KaUaUaU.KbKbuaX.IbRbRbRbo.4.obR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2.2bR.I#4bpaS#E.l.l#j.K.K.KaUaUaUaU.K.K#j.X#1#G#IbRbR.I#4.gbobR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2.2bR.0bEbTbTbp#x.c.Q.wa1#j.KaUaUaUaU.K#Naq.Qbpbm.0#kbCbD.Vbm.0bR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.2bR.I#4bp.i#W#0.J#0.c.Q.Caq#j.KaU.K.K#jaq.C.J#vbm#VbCbD.y#lbl.0bR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2bRbo#.bp.c#maqaqaqaq#t.C#1.Caq#j.K.K#jaq#q.J.Q.z.v.6bD.q.jaP.y.IbR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2.2.o#4bp.c#tbK.K.K.K.K#Na1#m.Q.C.l#j#jaq.C.JbV#m#S.9bvbT#Qa#a#bl.0bR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2.2bR.f#GbV#t#j.K.KaU.K.K.KbKa1#YbV#S.1.w.Q.J.Q#m.1#S#x..bT#QbLarbE.o.2.2.2.2.2.2",
+".2.2.2.2.2.2.2.2bR.o#.#v#mbK#N#N.K#NbK.K#N.K#j#t.Q#T.r#q#0bV#m.1.w#qbp.Gao.V#Q.V.fbRbR.2.2.2.2.2",
+".2.2.2.2.2.2.2.2bR#Z#GbV.l#N#N#jbq#P.Xa1.l#N#N.l#1bX.J.J.Q#m.1.w#q.W.G.6.u.g.g.f#kbh.2.2.2.2.2.2",
+".2.2.2.2.2.2.2bRbh#4#v.rbK.K#jaw#Y#Y.C#Yaw#j.K#j#S#x.i.c#m.1.w#q.J.ibmbC##.4.Ibh.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2bR#3.g.9#E#j.K.K#jaq#Y#Yaq#j.K.K#N#P.Q.cbGax.w#q.J.Q.z.T.I#k.o.2bR.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2bR#3#G.c.w#N.K.K.K#N.l#j#j.KaU.K#N.X#1.Q.Oax.C#0bVbkbkal#IbR.2.2.2.2.2.2.2.2.2.2.2",
+".2.2.2.2.2.2.2bR#3#G.c.X#NaUaU.K.K.K.K.KaU.KaU#N.X#1#1#S.O.C.C#t#jbqaX.0bR.2.2.2.2.2.2.2.2.2.2.2",
+"#3###3#3#3#3#3###V#G#0.w#N.KaUaUaUaUaUaUaUaUaU#N.X#1#1.O#P.aaq#j.Ka1alaE##btbtbtbtbtbtbt#3bt#3bt",
+"#2.Z.Z.Z.Z.Z.Z.ZbsbT#0.w#N.KaUaUaUaUaUaUaUaUaU#N.X.C#1#EbK#j#N.K.Kaq.9bsbW.Z.Z.Z.Z.Z.Z.Z.Z.Z.Z.Z",
+".S.S.S.S.S.S.S#hbz.q.J.X#jaUaUaUaUaU.KaUaUaUaU#N.X#1.Q.X#jaUaU.K.K.X.D#AaF.S.S.S.S.S.S.S.S.S.S.S",
+".E.E.3.E.3.E.E#c#h.7#0.w#N.KaUaUaU.KaUaU.KaU.K#N.X.C#1.w#j.KaU.K#j#E.D#haY.E.3.E.E.E.E.E.E.E.E#J",
+".nbI.n.n.nbIbI.Ebb.7#x.w#jaUaUaU.KaUaUaUaUaUaU#N.X#1#1.X#N.K.K#j.X#TbW#h.3.E.E.E.3.EbIbIbI.n.n.n",
+".n.n.n.n.n.n.n.EbU.7.J.w#N.KaUaUaUaU.KaUaUaUaU#N.X.C#1.X#j.K#N.w#T.7aFaYbI.3#JbIbIbI.n.nbI.n.n.n",
+".n.n.n.n.n.n.n.E.S.7#x.X#jaUaUaUaU.KaUaUaUaUaU#N.X#1#1.wbK#j.X#T#Q#hbIba.n.Pam#D#JbIbI.P.nbI.n.n",
+".n.n.nbI.n.n.n.E#9.7#x.w#j.KaUaUaUaUaU.KaUaU.K#N.X.C#1.w.1.X#Taz#LbaaVaG.pabag.b#n#n#n.B#d#ybI.n",
+".n.n.n.n.n.n.n.EbU.7#0.w#jaUaUaU.KaUaUaUaUaUaU#N.X#1.Q#e#S#q.q.x.taiaG#b#6#b#o#o.F#U.d#sa8af#J.n",
+".nbI.n.n.n.n.nbI#9.7#xbk#N.K.KaU.K.KaU.KaU.K.K#j.X.Q.caS#T.q.xaY#Dai.p#6.F.dauauaMay.YbFaBaf#J.n",
+".n.n.n.n.n.n.nbIbU.7#WbG.Xaq.laq.laqaqaqaqaq.l.X#S.c.i#Waz.7b..3.3ai.pa3.d#Kas.UaKaLayaLaQaf#J.n",
+".n.n.n.n.n.n.nbI#c.N..#W#0#0#0#0#0.c#0.c.c.c#0.JbX.W.WaQah#nb..E.3ac.8.M.A.U.n.nbIa7#fbF.Zaf#JbI",
+".n.n.n.n.n.nbIbIbIb.#B.7.q.q.q.7.q.q#zbTazbTaz.Waz#zblaT#K.7#9.EbIan#Ua4au#K#d.n.naK#fbF#2aA#D.3",
+".n.n.n.n.n.n.n.nbIbI.#.#b..#b..#b..S.xaQa6.mah#Xa6.mad#gad#X#Java.ap.Y#abF.5abbQbHa2#ra2.s#iaHaj",
+".n.n.n.n.n.n.n.nbI.nbIbI.n.n.nbIbI.Ebb#B.maT#K#O.maTasaT#K#Qbx#Fby.Lbc.L#waLbMa0aMaJbga2aCbS#n.N",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.E.SaBadasad#Xah#gaT#gad.ybxbH.LaebNaN.Ma3.M.Ma3aR#a#rao.s#2.7",
+".n.n.n.n.n.n.nbI.n.n.n.n.n.n.n.n.n.EbU#B#KaT#Kaz.maT#gaT#K#QbxaJ#p#7#6b##p#p#p#p#p#p#MaIbwbiaDbv",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.EbUaBa6#gad#Xah#gaT#gad.yacaJbO#7aN.L#M.Hay#M#M#MbgaIbw.sbr..",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.E#9#B#KaT#KbB.maT#gad.mbJanaJbO#7bNbcbd#Hbd#H#H#H#H#rbwbiaDbT",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.EbUaBad#gad#Xad#gaT.m.e#haaaJbO#7aN#MaZaZaZaZaZaZaZ#5bwbiaD..",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.nbI.#.N.baT#K#O.maTbS.eaO#caaaJbO#7aNbObAbAbAbnbAbnbnaIbwbiaD..",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.nbIbIb.#B.bah#XahbS#BaO#c.Eaaay#paeaR#8#H#H#H#H#H#HbA.RbwbiaD..",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.nbI.EaO.NaBbW#n#BaO.EbI.naia5.YbObd#r.Ra9a9.Ra9.Ra9.u#C.s#2.7",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.nbI.E#c.#.#b..#.EbIbIbI.nbaa0a2.uaE#VaE#VaE.6.5blbr.V.Zbz.h",
+".n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.n.nbI.nbIbIbI.nbI.n.n#J#Jaiat#w.k#w.k.k.kbFaLaK#KaWaWbe.hbf"
+};
+');
+	} else {
+		$up = $canvas->Pixmap(-data => ' 
+/* XPM */
+static char *up[] = {
+/* width height num_colors chars_per_pixel */
+"    48    48        6            1",
+/* colors */
+". c #5151fb",
+"# c #000000",
+"a c #ffff00",
+"b c #fa1340",
+"c c #ffffff",
+"d c #009300",
+/* pixels */
+"................................................",
+".............................##########.........",
+".............................##########.........",
+"........................####.##aaaaaa##.........",
+"......................####b####aaaaaa##.........",
+".....................###bbbbb##aaaaaa##.........",
+"....................##bbbbbbb##aaaaaa##.........",
+"...................##bbbbbbbb##########.........",
+"..................##bbbbbbbbb##########.........",
+".................##bbbbbbbbbb###bb#.............",
+"................##bbbbbbbbbbb###bb#.............",
+"...............##bbbbbbbbbbbb###b##.............",
+"..............#######bbbbbbbb######.............",
+".............##########bbbbbb######.............",
+"............###bbbbbb###bbbbb####b#.............",
+"...........###bbbbbbbbb##bbbb###bb#.............",
+"...........##bbbbbbbbbb##bbb####bb#.............",
+"..........##bbbbbbbbbbbb##b#####bb#.............",
+"..........##bbbbbbbbbbbb########bb#.............",
+".........##bbbb######bbbb###b###bb#.............",
+".........##bbbbbb##bbbbbb##bb###bb#.............",
+".........##bbbbbbbbbbbbbb##bb###bb#.............",
+".........##bbbbbbbbbbbbbb##bb###bb#.............",
+".........##bbbbbbbbbbbbbb##bb##bbb#.............",
+"###########bcbcbbcbbcbcbb##bbbbbbb##############",
+"ddddddddd##bcccbcbcbcbcbb##bbbbbbb#ddddddddddddd",
+"ddddddddd##bcbcbcccbcbcbb##bbbbbbb#ddddddddddddd",
+"ddddddddd##bcbcbcbcbcbcbb##bbbbbb##ddddddddddddd",
+"ddddddddd##bcbcbcbcbcbccb##bbbbb##dddddddddddddd",
+"ddddddddd##bbbbbbbbbbbbbb##bbbb##ddddddddddddddd",
+"ddddddddd##bbbbbbbbbbbbbb##bbb##dddddddddddddddd",
+"ddddddddd##bbbbbbbbbbbbbb##bb##ddddddddddddddddd",
+"ddddddddd##bbbbbbbbbbbbbb##b##dddddddddddddddddd",
+"ddddddddd##bbbbbbbbbbbbbb#####dddddddddddddddddd",
+"ddddddddd###################c#dddddddddddddddddd",
+"dddddddddd#################c##dddddddddddddddddd",
+"ddddddddddddddddddd#c#c#c#c#c#dddddddddddddddddd",
+"ddddddddddddddddddd##c###c#c##dddddddddddddddddd",
+"ddddddddddddddddddd#c#c#c#c#c#dddddddddddddddddd",
+"ddddddddddddddddddd##c###c#c##dddddddddddddddddd",
+"ddddddddddddddddddd#c#c#c#c#c#dddddddddddddddddd",
+"ddddddddddddddddddd##c###c#c##dddddddddddddddddd",
+"ddddddddddddddddddd#c#c#c#c##ddddddddddddddddddd",
+"ddddddddddddddddddd##c###c##dddddddddddddddddddd",
+"dddddddddddddddddddd##c#c##ddddddddddddddddddddd",
+"ddddddddddddddddddddd#####dddddddddddddddddddddd",
+"dddddddddddddddddddddddddddddddddddddddddddddddd",
+"dddddddddddddddddddddddddddddddddddddddddddddddd"
+};
+SIMPLE  =                    T                                                  BITPIX  =                    8                                                  NAXIS   =                    2                                                  NAXIS1  =                   48                                                  NAXIS2  =                   48                                                  HISTORY Written by XV 3.10                                                      END                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII     IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIII                 ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIII                   ÿ IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii     IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  i  IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  ii  IIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iii  IIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiii  IIIIIIIIIIIIIIIIIIIIIIII  iÿiÿiÿiÿiÿiÿÿi  iiiii  IIIIIIIIIIIIIIIIIIIIIII  iÿiÿiÿiÿiÿiÿii  iiiiii  IIIIIIIIIIIIIIIIIIIIII  iÿiÿiÿÿÿiÿiÿii  iiiiiii IIIIIIIIIIIIIIIIIIIIII  iÿÿÿiÿiÿiÿiÿii  iiiiiii IIIIIIIIIIIII           iÿiÿiiÿiiÿiÿii  iiiiiii              kkkkkkkkk  iiiiiiiiiiiiii  ii  iii kkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiii  ii   ii kkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiii  ii   ii kkkkkkkkkkkkkkkkkkkkkk  iiiiii  iiiiii  ii   ii kkkkkkkkkkkkkkkkkkkkkk  iiii      iiii   i   ii kkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii        ii kkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii  i     ii kkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiii  iii    ii kkkkkkkkkkkkkkkkkkkkkkkk   iiiiiiiii  iiii   ii kkkkkkkkkkkkkkkkkkkkkkkkk   iiiiii   iiiii    i kkkkkkkkkkkkkkkkkkkkkkkkkk          iiiiii      kkkkkkkkkkkkkkkkkkkkkkkkkkk       iiiiiiii      kkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii   i  kkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiii   ii kkkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiii   ii kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiii          kkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiii          kkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiii  ××××××  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkk   iiiii  ××××××  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk    i    ××××××  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk    k  ××××××  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk          kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk          kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+');
+		$down = $canvas->Pixmap(-data => '
+/* XPM */
+static char *down[] = {
+/* width height num_colors chars_per_pixel */
+"    48    48        6            1",
+/* colors */
+". c #5151fb",
+"# c #000000",
+"a c #fa1340",
+"b c #ffff00",
+"c c #009300",
+"d c #ffffff",
+/* pixels */
+"................................................",
+"................................................",
+"................................................",
+"........................####....................",
+"......................####a####.................",
+".....................###aaaaa####...............",
+"....................##aaaaaaaaaa##..............",
+"...................##aaaaaaaaaaaa##.............",
+"..................##aaaaaaaaaaaaa##.............",
+".................##aaaaaaaaaaaaaaa#.............",
+"................##aaaaaaaaaaaaaaaa#.....#.......",
+"...............##aaaaaaaaaaaaaaaa##....##.......",
+"..............#######aaaaaaaaaaa###...###.......",
+".............##########aaaaaaaa####..##b#.......",
+"............###aaaaaa###aaaaaa###a#.##bb#.......",
+"...........###aaaaaaaaa##aaaa###aa####bb#.......",
+"...........##aaaaaaaaaa##aaa###aaa####b##.......",
+"..........##aaaaaaaaaaaa##a###aaa###.###........",
+"..........##aaaaaaaaaaaa#####aaa###..##.........",
+".........##aaaa######aaaa###aaa####..#..........",
+".........##aaaaaa##aaaaaa##aaa###a#.............",
+".........##aaaaaaaaaaaaaa##aa###aa#.............",
+".........##aaaaaaaaaaaaaa##aa##aaa#.............",
+".........##aaaaaaaaaaaaaa##aa#aaaa#.............",
+"###########aaaaaaaaaaaaaa##aaaaaaa##############",
+"ccccccccc##aaaaaaaaaaaaaa##aaaaaaa#ccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aaaaaaa#ccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aaaaaa##ccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aaaaa##cccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aaaa##ccccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aaa##cccccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##aa##ccccccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa##a##cccccccccccccccccc",
+"ccccccccc##aaaaaaaaaaaaaa#####cccccccccccccccccc",
+"ccccccccc###################d#cccccccccccccccccc",
+"cccccccccc#################d##cccccccccccccccccc",
+"ccccccccccccccccccc#d#d#d#d#d#cccccccccccccccccc",
+"ccccccccccccccccccc##d###d#d##cccccccccccccccccc",
+"ccccccccccccccccccc#d#d#d#d#d#cccccccccccccccccc",
+"ccccccccccccccccccc##d###d#d##cccccccccccccccccc",
+"ccccccccccccccccccc#d#d#d#d#d#cccccccccccccccccc",
+"ccccccccccccccccccc##d###d#d##cccccccccccccccccc",
+"ccccccccccccccccccc#d#d#d#d##ccccccccccccccccccc",
+"ccccccccccccccccccc##d###d##cccccccccccccccccccc",
+"cccccccccccccccccccc##d#d##ccccccccccccccccccccc",
+"ccccccccccccccccccccc#####cccccccccccccccccccccc",
+"cccccccccccccccccccccccccccccccccccccccccccccccc",
+"cccccccccccccccccccccccccccccccccccccccccccccccc"
+};
+SIMPLE  =                    T                                                  BITPIX  =                    8                                                  NAXIS   =                    2                                                  NAXIS1  =                   48                                                  NAXIS2  =                   48                                                  HISTORY Written by XV 3.10                                                      END                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII     IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII  ÿ   ÿ ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII ÿ ÿ ÿ ÿ ÿ IIIIIIIIIIIIIIIIIIIIIIIIIIII                 ÿ  IIIIIIIIIIIIIIIIIIIIIIIIIII                   ÿ IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii     IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  i  IIIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  ii  IIIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iii  IIIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiii  IIIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiiii  IIIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiiiii  IIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiiiiii IIIIIIIIIIIIIIIIIIIIII  iiiiiiiiiiiiii  iiiiiii IIIIIIIIIIIII           iiiiiiiiiiiiii  iiiiiii              kkkkkkkkk  iiiiiiiiiiiiii  ii iiii kkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiii  ii  iii kkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiii  ii   ii kkkkkkkkkkkkkkkkkkkkkk  iiiiii  iiiiii  iii   i kkkkkkkkkkkkkkkkkkkkkk  iiii      iiii   iii    kk kkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii     iii   kk  kkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii  i   iii   k   kkkkkkkkkkkkkkkkkkk  iiiiiiiiii  iii   iii    ×  kkkkkkkkkkkkkkkkkk   iiiiiiiii  iiii   ii    ×× kkkkkkkkkkkkkkkkkkk   iiiiii   iiiiii   i k  ×× kkkkkkkkkkkkkkkkkkkk          iiiiiiii    kk  × kkkkkkkkkkkkkkkkkkkkk       iiiiiiiiiii   kkk   kkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiiiii  kkkk  kkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiiiii kkkkk kkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiiiii kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiiii  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiiiii  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk  iiiiiiiiii  kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk   iiiii    kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk    i    kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk    kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+');
+	}
+	$checking = $canvas->Pixmap(-data => ' 
+/* XPM */
+static char *check[] = {
+/* width height num_colors chars_per_pixel */
+"    48    48      115            2",
+/* colors */
+".. c #000000",
+".# c #000006",
+".a c #020202",
+".b c #040404",
+".c c #060606",
+".d c #090909",
+".e c #0a0a0a",
+".f c #0b0b0b",
+".g c #120f07",
+".h c #17130a",
+".i c #1f180d",
+".j c #292010",
+".k c #312713",
+".l c #41351d",
+".m c #463519",
+".n c #655125",
+".o c #6a5426",
+".p c #8b743f",
+".q c #917846",
+".r c #977735",
+".s c #a7894b",
+".t c #a88a47",
+".u c #ad914a",
+".v c #b49760",
+".w c #dab25a",
+".x c #e0bb65",
+".y c #e5be73",
+".z c #fdcd6e",
+".A c #ffc351",
+".B c #ffc558",
+".C c #ffc563",
+".D c #ffc659",
+".E c #ffc752",
+".F c #ffc756",
+".G c #ffc85c",
+".H c #ffc85f",
+".I c #ffc95d",
+".J c #ffc964",
+".K c #ffca5b",
+".L c #ffcb63",
+".M c #ffcb64",
+".N c #ffcc63",
+".O c #ffcc64",
+".P c #ffcc65",
+".Q c #ffcd61",
+".R c #ffcd67",
+".S c #ffcd69",
+".T c #ffcd6a",
+".U c #ffce67",
+".V c #ffce69",
+".W c #ffce6c",
+".X c #ffce6d",
+".Y c #ffcf65",
+".Z c #ffcf74",
+".0 c #ffcf77",
+".1 c #ffd069",
+".2 c #ffd06b",
+".3 c #ffd06f",
+".4 c #ffd070",
+".5 c #ffd071",
+".6 c #ffd077",
+".7 c #ffd165",
+".8 c #ffd171",
+".9 c #ffd172",
+"#. c #ffd173",
+"## c #ffd174",
+"#a c #ffd176",
+"#b c #ffd178",
+"#c c #ffd17d",
+"#d c #ffd271",
+"#e c #ffd273",
+"#f c #ffd275",
+"#g c #ffd277",
+"#h c #ffd369",
+"#i c #ffd36d",
+"#j c #ffd372",
+"#k c #ffd377",
+"#l c #ffd378",
+"#m c #ffd37b",
+"#n c #ffd37d",
+"#o c #ffd466",
+"#p c #ffd470",
+"#q c #ffd47d",
+"#r c #ffd569",
+"#s c #ffd573",
+"#t c #ffd576",
+"#u c #ffd57f",
+"#v c #ffd582",
+"#w c #ffd679",
+"#x c #ffd692",
+"#y c #ffd76e",
+"#z c #ffd778",
+"#A c #ffd783",
+"#B c #ffd78f",
+"#C c #ffda74",
+"#D c #ffdd73",
+"#E c #ffdd78",
+"#F c #ffde71",
+"#G c #ffe068",
+"#H c #ffe07a",
+"#I c #ffe081",
+"#J c #ffe36d",
+"#K c #ffe386",
+"#L c #ffe678",
+"#M c #ffe786",
+"#N c #ffea74",
+"#O c #ffec84",
+"#P c #ffed71",
+"#Q c #ffee8a",
+"#R c #fff374",
+"#S c #fff77e",
+"#T c #fff787",
+"#U c #fffa83",
+"#V c #fffc81",
+"#W c #ffff7b",
+/* pixels */
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................",
+".....................................q.q#l#z#z#E.9.9.5..........................................",
+"...................................l#g#g#I#T#T#S#W#W#P.Q.Q.j....................................",
+"...................................l#g#g#I#T#T#S#W#W#P.Q.Q.j....................................",
+"..............................#a#a#m#k#k............#r#i#i#h.k.k................................",
+".............................T#M#M......#u#y#y.7.w.w......#y.O.O................................",
+".............................T#M#M......#u#y#y.7.w.w......#y.O.O................................",
+"............................#p#K#K..#A#A.H.A.A.E.2.2.u....#C#J#J.m..............................",
+".........................p.p#L.....n#H#H........#N#N.U....#w#R#R.D..............................",
+".........................p.p#L.....n#H#H........#N#N.U....#w#R#R.D..............................",
+"........................#s#s.S#d#d.C.V.V........#V#V.M....#e#G#G.........e.e....................",
+".............................Y.R.R.X..........#.#U#U......#F.I.I.........c.c....................",
+".............................Y.R.R.X..........#.#U#U......#F.I.I.........c.c....................",
+"..............................................##.Z.Z..#c#c#o.r.r.......c........................",
+"..........................................#d#d#n.......6.6.K.......a.a..........................",
+"..........................................#d#d#n.......6.6.K.......a.a..........................",
+".........................................z#j#j#x....#B.0.0.........c.c..........................",
+".........................................W#Q#Q......#q#n#n.......a.#.#..........................",
+".........................................W#Q#Q......#q#n#n.......a.#.#..........................",
+".........................................8#O#O...1.1.X...........c..............................",
+"........................................#b#C#C...N.N.J..........................................",
+"........................................#b#C#C...N.N.J..........................................",
+".........................................v#d#d.G.1.1.g..........................................",
+"...........................................y.y...x.x.........b.b................................",
+"...........................................y.y...x.x.........b.b................................",
+"................................................................................................",
+"...........................................s.s.o.t.t............................................",
+"...........................................s.s.o.t.t............................................",
+"........................................#v.4.4.B.L.L#t..........................................",
+"........................................#f.P.P...F.F.h..........................................",
+"........................................#f.P.P...F.F.h..........................................",
+".........................................3.5.5#D.3.3............................................",
+".................................................i.i.........f.f................................",
+".................................................i.i.........f.f................................",
+"................................................................................................",
+".....................................................d.d.d......................................",
+".....................................................d.d.d......................................",
+".....................................................d..........................................",
+"................................................................................................",
+"................................................................................................",
+"................................................................................................"
+};
+');
+	return 1;
+}

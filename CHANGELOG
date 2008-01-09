@@ -1,0 +1,16 @@
+Version 1.0   - Allow using SSL to connect to an imaps server.
+              - Only login to imap server once, and keep connection open.
+                (Thanks to Eric Sorenson for the idea.)     
+              - Fixed some bugs that caused problems with Exchange servers.
+                (Thanks to Jay Fenlason.)     
+              - Fixed bug that caused problem with spaces in username.
+                (Thanks to Dave Smith.)     
+              - Fixed bug in continuing from an error condition.    
+              - Cleaned up the code a bit.
+
+Version 0.9.1 - modified error output to allow imapbiff to continue running,
+                rather than just exiting.
+              - fixed bug where entering no password was not being caught as a 
+                failed login.
+
+Version 0.9   - First release.

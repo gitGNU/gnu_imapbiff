@@ -1,0 +1,106 @@
+Current Version: 1.0
+
+What is imapbiff?
+-----------------
+imapbiff is a small perl/tk program that notifies you of new mail in an IMAP 
+mail account.  It only checks IMAP accounts, not local mail files or POP
+accounts.  When you do not have any unread messages in your IMAP Inbox, it
+will display a mailbox icon with the flag lowered.  When it detects new
+messages in your IMAP Inbox, it will beep and raise the flag.  Whenever it is
+querying the IMAP server, a "?" is displayed to indicate that it is checking
+for messages.
+
+Requirements
+------------
+- perl.
+- The Tk perl module (DOES NOT come with most perl installations).
+- The Getopt module (comes with most perl installations).
+- The IO perl module (comes with most perl installations).
+- The IO::Socket::SSL module if you want to use an SSL connection.
+
+Installation
+------------
+Check the first line of imapbiff to see if it is pointing at the correct
+location of your perl interpreter.  If not, change this line so that it
+contains a correct path to perl.
+
+Usage
+-----
+You can either pass command line arguments to imapbiff, or use a .imapbiffrc
+file in your home directory.  The format of the .imapbiffrc file is:
+
+host <IMAP server hostname>
+user <your user name on the IMAP server>
+sleep <number of seconds to sleep between checks>
+password <your password>
+nobeep 
+use_ssl (if you want to connect over SSL)
+
+It is recommended to not store your password in the file, and rather let
+imapbiff bring up a window to prompt you for your password.
+Example .imapbiffrc:
+
+host my.mail.host.org
+user marndt
+sleep 600
+
+This would try to login as marndt at my.mail.host.org every 600 seconds.
+You will be prompted for your password when imapbiff starts, and upon having
+new mail, the icon will change and a beep will be sent out.
+
+You can also specify command line options, which override the .imapbiffrc
+options: 
+
+-d
+  debug mode: in this mode, imapbiff will not run as a daemon, but rather print
+  out debugging messages to the terminal you start it from.
+-q 
+  quiet mode: do not beep when you have new messages.  Identical to having a
+  line with "nobeep" on it in the .imapbiffrc file.
+-h <host>
+  host: use <host> as the IMAP server.  No default, this must be specified
+  either in the .imapbiffrc or on the command line.
+-s <sleep>
+  sleep: sleep for <sleep> seconds between checks.  Defaults to 120 seconds.
+-u <user>
+  user: connect to the IMAP server as <user>.  Defaults to the user you run
+  imapbiff as.
+-e
+  Use SSL when connecting to the imap server.  This defaults to port 993.
+
+While imapbiff is running, you can use the mouse buttons for the folllowing:
+
+Button 1: click on the pixmap with button 1 to lower the mailbox flag, and
+remember the current number of unseen messages in your mailbox.  If any new 
+messages come, the flag will go up again.  If imapbiff sees that you have
+read the messages, it will automatically lower the threshold so that you
+are notified when new messages arrive.
+
+Button 2: click on the pixmap with button 2 to initiate an immediate check of
+your mailbox.  
+
+Issues
+------
+On older perl installations, the IO::Socket module does work correctly with 
+imapbiff's alarm setup.  If imapbiff is dying, run it in debug mode (-d), and
+look at the output when it dies.  If it dies saying "Alarm clock", then you
+will need to upgrade your perl IO module.  If it is dying for any other reason,
+please let me know.
+
+To-do
+-----
+- Get prettier pixmaps!
+
+Author and Homepage
+-------------------
+Author: Michael Arndt
+Email: marndt@bulldog.tzo.org
+Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
+
+Thanks you's:
+-------------
+I got the pixmaps for the mailbox from a color xbiff program.  I don't know what
+it was, but if anyone recognizes the pixmaps, let me know and I will give credit
+to the original creator of the pixmaps.  
+
+See the CHANGELOG file for some more Thank you's.
