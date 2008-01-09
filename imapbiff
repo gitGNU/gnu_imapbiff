@@ -15,7 +15,7 @@ use IO::Socket;
 use Getopt::Std;
 use POSIX;
 use Tk;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c);
 
 #
 # Set up signal handling.
@@ -33,9 +33,10 @@ $SIG{'TERM'} = 'cleanup';
 my ($host,$port,$handle,$baseline,$beep,$use_ssl);
 my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
-my ($prog);
+my ($prog,$conffile);
 $prog = $0;
 $prog =~ s,.*/,,g;
+$conffile = "$ENV{'HOME'}/.imapbiffrc";
 
 # 
 # Set defaults.
@@ -49,11 +50,12 @@ $use_ssl   = 0;
 $logged_in = 0;
 
 #
-# Get user supplied parameters.  The command line overrides the .imapbiffrc.
+# Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:dqe");
-if ( -f "$ENV{'HOME'}/.imapbiffrc") {
-	open (RC, "<$ENV{'HOME'}/.imapbiffrc") or error("$prog: Error opening .imapbiffrc",1);
+help() unless getopts("h:u:s:c:dqe");
+$conffile = $opt_c if ($opt_c);
+if ( -f $conffile) {
+	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
 	while(<RC>) {
 		$host     = $1 if /host\s+(\S+)/;
 		$user     = $1 if /user\s+(\S+)/;
