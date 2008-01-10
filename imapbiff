@@ -15,7 +15,7 @@ use IO::Socket;
 use Getopt::Std;
 use POSIX;
 use Tk;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_l);
 
 #
 # Set up signal handling.
@@ -47,11 +47,12 @@ $baseline  = 0;
 $beep      = 1;
 $use_ssl   = 0;
 $logged_in = 0;
+$password  = 0;
 
 #
 # Get user supplied parameters.  The command line overrides the .imapbiffrc.
 #
-help() unless getopts("h:u:s:dqe");
+help() unless getopts("h:u:s:dqel");
 if ( -f "$ENV{'HOME'}/.imapbiffrc") {
 	open (RC, "<$ENV{'HOME'}/.imapbiffrc") or error("$prog: Error opening .imapbiffrc",1);
 	while(<RC>) {
@@ -131,13 +132,14 @@ sub update {
 		$button->afterCancel($repeat);
 		$repeat = 0;
 		while (! $logged_in) {
-			get_password();
+			if (!$password) { get_password(); }
 			login();
 		}
 		$new_messages = check_imap();
 		$repeat = $button->repeat($sleepms, \&update);
 		print STDERR "repeat set to $sleepms.\n" if $opt_d;
 	}
+        logout() if $opt_l;
 	$new_messages = 0 if (! $new_messages);
 	if ($new_messages eq "-1") {
 		print STDERR "check_imap returned an error, no updates.\n" if $opt_d;
@@ -401,14 +403,26 @@ sub alarm {
 	print STDERR "Alarm went off!\n" if $opt_d;
 	return 1;
 }
+#
+# Subroutine to logout from imap mailbox.
+#
+sub logout
+{
+   if ($handle)
+   {
+      send_data("A999 LOGOUT");
+      close($handle);
+   }
+   $handle=0;
+   $logged_in=0;
+   print STDERR "Logging out from the server.\n" if $opt_d;
+}
 
 #
 # Subroutine to clean up and exit if we are signalled.
 #
 sub cleanup {
-	if ($handle) {
-		send_data("A999 LOGOUT");
-	}
+        logout();
 	print STDERR "Exiting by user request.\n";
 	exit;
 }
@@ -417,7 +431,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d]\n";
+	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l]\n";
 }
 
 #
