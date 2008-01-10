@@ -55,12 +55,12 @@ help() unless getopts("h:u:s:dqe");
 if ( -f "$ENV{'HOME'}/.imapbiffrc") {
 	open (RC, "<$ENV{'HOME'}/.imapbiffrc") or error("$prog: Error opening .imapbiffrc",1);
 	while(<RC>) {
-		$host     = $1 if /host\s+(\S+)/;
-		$user     = $1 if /user\s+(\S+)/;
-		$sleep    = $1 if /sleep\s+(\d+)/;
-		$password = $1 if /password\s+(\d+)/;
-		$beep     = 0  if /nobeep/;
-		$use_ssl  = 1  if /use_ssl/;
+		$host     = $1 if /^host\s+(\S+)/;
+		$user     = $1 if /^user\s+(\S+)/;
+		$sleep    = $1 if /^sleep\s+(\d+)/;
+		$password = $1 if /^password\s+(\d+)/;
+		$beep     = 0  if /^nobeep/;
+		$use_ssl  = 1  if /^use_ssl/;
 	}
 	close(RC);
 }
