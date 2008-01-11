@@ -15,7 +15,7 @@ use IO::Socket;
 use Getopt::Std;
 use POSIX;
 use Tk;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l);
 
 #
 # Set up signal handling.
@@ -30,7 +30,7 @@ $SIG{'TERM'} = 'cleanup';
 #
 # Global variables.
 #
-my ($host,$port,$handle,$baseline,$beep,$use_ssl);
+my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
 my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile);
@@ -48,11 +48,12 @@ $baseline  = 0;
 $beep      = 1;
 $use_ssl   = 0;
 $logged_in = 0;
+$password  = 0;
 
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:c:dqe");
+help() unless getopts("h:u:s:c:dqel");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
@@ -63,6 +64,7 @@ if ( -f $conffile) {
 		$password = $1 if /^password\s+(\d+)/;
 		$beep     = 0  if /^nobeep/;
 		$use_ssl  = 1  if /^use_ssl/;
+		$login_o  = 1  if /^login/;
 	}
 	close(RC);
 }
@@ -73,6 +75,7 @@ $sleep   = $opt_s if ($opt_s);
 $sleep   = 120 if (! $sleep);
 $beep    = 0 if ($opt_q);
 $use_ssl = 1 if ($opt_e);
+$login_o = 1 if ($opt_l);
 $sleepms = $sleep * 1000;
 help() if (! $host);
 if ($use_ssl) {
@@ -133,13 +136,14 @@ sub update {
 		$button->afterCancel($repeat);
 		$repeat = 0;
 		while (! $logged_in) {
-			get_password();
+			if (!$password) { get_password(); }
 			login();
 		}
 		$new_messages = check_imap();
 		$repeat = $button->repeat($sleepms, \&update);
 		print STDERR "repeat set to $sleepms.\n" if $opt_d;
 	}
+        logout() if $login_o;
 	$new_messages = 0 if (! $new_messages);
 	if ($new_messages eq "-1") {
 		print STDERR "check_imap returned an error, no updates.\n" if $opt_d;
@@ -403,14 +407,26 @@ sub alarm {
 	print STDERR "Alarm went off!\n" if $opt_d;
 	return 1;
 }
+#
+# Subroutine to logout from imap mailbox.
+#
+sub logout
+{
+   if ($handle)
+   {
+      send_data("A999 LOGOUT");
+      close($handle);
+   }
+   $handle=0;
+   $logged_in=0;
+   print STDERR "Logging out from the server.\n" if $opt_d;
+}
 
 #
 # Subroutine to clean up and exit if we are signalled.
 #
 sub cleanup {
-	if ($handle) {
-		send_data("A999 LOGOUT");
-	}
+        logout();
 	print STDERR "Exiting by user request.\n";
 	exit;
 }
@@ -419,7 +435,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-c config_file]\n";
+	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-c config_file] [-l]\n";
 }
 
 #
