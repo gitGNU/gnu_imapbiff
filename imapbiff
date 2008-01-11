@@ -76,7 +76,6 @@ $use_ssl = 1 if ($opt_e);
 $login_o = 1 if ($opt_l);
 $sleepms = $sleep * 1000;
 help() if (! $host);
-print STDERR "$login_o\n" if $opt_d;
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
 	$port = 993;
