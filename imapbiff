@@ -419,7 +419,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d]\n";
+	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-c config_file]\n";
 }
 
 #
