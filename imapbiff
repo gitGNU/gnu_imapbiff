@@ -8,14 +8,14 @@
 # Released under the GNU GPL.  A text version of the GPL should have come
 # with this program in the file "COPYING".
 # Copyright 2000 Michael Arndt
-#
+# (C) 2007 Enrique D. Bosch 'presi' (improvements)
 
 use strict;
 use IO::Socket;
 use Getopt::Std;
 use POSIX;
 use Tk;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p);
 
 #
 # Set up signal handling.
@@ -42,7 +42,6 @@ $conffile = "$ENV{'HOME'}/.imapbiffrc";
 # Set defaults.
 #
 $host      = "";
-$port      = 143;
 $handle    = 0;
 $baseline  = 0;
 $beep      = 1;
@@ -53,12 +52,13 @@ $password  = 0;
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:c:dqel");
+help() unless getopts("h:u:s:c:p:dqel");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
 	while(<RC>) {
 		$host     = $1 if /^host\s+(\S+)/;
+                $port     = $1 if /^port\s+(\d+)/;
 		$user     = $1 if /^user\s+(\S+)/;
 		$sleep    = $1 if /^sleep\s+(\d+)/;
 		$password = $1 if /^password\s+(\d+)/;
@@ -68,19 +68,21 @@ if ( -f $conffile) {
 	}
 	close(RC);
 }
+$use_ssl = 1 if ($opt_e);
 $host    = $opt_h if ($opt_h);
+$port    = $opt_p if ($opt_p);
+$port    = 993 if (!$port && $use_ssl);
+$port    = 143 if (!$port);
 $user    = $opt_u if ($opt_u);
 $user    = $ENV{'USER'} if (! $user);
 $sleep   = $opt_s if ($opt_s);
 $sleep   = 120 if (! $sleep);
 $beep    = 0 if ($opt_q);
-$use_ssl = 1 if ($opt_e);
 $login_o = 1 if ($opt_l);
 $sleepms = $sleep * 1000;
 help() if (! $host);
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
-	$port = 993;
 	require IO::Socket::SSL;
 }
 
@@ -435,7 +437,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog -h host [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-c config_file] [-l]\n";
+	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l]\n";
 }
 
 #
