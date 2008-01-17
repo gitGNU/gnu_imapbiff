@@ -1,3 +1,10 @@
+Version 1.1   - Added login/logout mode for every check in addition to 
+                permanent connection.
+              - Support for alternative config file
+              - Support for custom port
+              - Improved config file reader routine
+              - Updated to GPL v3
+
 Version 1.0   - Allow using SSL to connect to an imaps server.
               - Only login to imap server once, and keep connection open.
                 (Thanks to Eric Sorenson for the idea.)     

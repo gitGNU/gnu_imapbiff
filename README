@@ -1,4 +1,4 @@
-Current Version: 1.0
+Current Version: 1.1
 
 What is imapbiff?
 -----------------
@@ -30,11 +30,13 @@ You can either pass command line arguments to imapbiff, or use a .imapbiffrc
 file in your home directory.  The format of the .imapbiffrc file is:
 
 host <IMAP server hostname>
+port <port for connection>
 user <your user name on the IMAP server>
 sleep <number of seconds to sleep between checks>
 password <your password>
 nobeep 
 use_ssl (if you want to connect over SSL)
+login
 
 It is recommended to not store your password in the file, and rather let
 imapbiff bring up a window to prompt you for your password.
@@ -60,6 +62,9 @@ options:
 -h <host>
   host: use <host> as the IMAP server.  No default, this must be specified
   either in the .imapbiffrc or on the command line.
+-p <port>
+  Port to connect to host. Same as "port" config option. If not given, 143 will
+  be used as default and 993 if ssl enabled.
 -s <sleep>
   sleep: sleep for <sleep> seconds between checks.  Defaults to 120 seconds.
 -u <user>
@@ -67,6 +72,12 @@ options:
   imapbiff as.
 -e
   Use SSL when connecting to the imap server.  This defaults to port 993.
+-c <file>
+  Use alternative config file
+-l
+  Login/logout mode: Login and logout from server for each check, recommended
+  for long sleep times (more than 15 minutes). This is the same as "login"
+  config option.
 
 While imapbiff is running, you can use the mouse buttons for the folllowing:
 
@@ -96,6 +107,7 @@ Author and Homepage
 Author: Michael Arndt
 Email: marndt@bulldog.tzo.org
 Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
+Improvements (version 1.1): Enrique D. Bosch <presidev at gmail.com>
 
 Thanks you's:
 -------------
