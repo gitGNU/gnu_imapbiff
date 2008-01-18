@@ -26,7 +26,7 @@ use IO::Socket;
 use Getopt::Std;
 use POSIX;
 use Tk;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n);
 
 #
 # Set up signal handling.
@@ -44,7 +44,7 @@ $SIG{'TERM'} = 'cleanup';
 my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
 my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
-my ($prog,$conffile);
+my ($prog,$conffile,$nodecor);
 $prog = $0;
 $prog =~ s,.*/,,g;
 $conffile = "$ENV{'HOME'}/.imapbiffrc";
@@ -59,11 +59,13 @@ $beep      = 1;
 $use_ssl   = 0;
 $logged_in = 0;
 $password  = 0;
+$login_o   = 0;
+$nodecor   = 0;
 
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:c:p:dqel");
+help() unless getopts("h:u:s:c:p:dqeln");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
@@ -76,6 +78,7 @@ if ( -f $conffile) {
 		$beep     = 0  if /^nobeep/;
 		$use_ssl  = 1  if /^use_ssl/;
 		$login_o  = 1  if /^login/;
+                $nodecor  = 1  if /^nodecor/;
 	}
 	close(RC);
 }
@@ -90,6 +93,7 @@ $sleep   = $opt_s if ($opt_s);
 $sleep   = 120 if (! $sleep);
 $beep    = 0 if ($opt_q);
 $login_o = 1 if ($opt_l);
+$nodecor = 1 if ($opt_n);
 $sleepms = $sleep * 1000;
 help() if (! $host);
 if ($use_ssl) {
@@ -111,6 +115,7 @@ $MW->title("imapbiff");
 $MW->iconname("imapbiff");
 $MW->wm("geometry", "58x58");
 $MW->resizable(0,0);
+$MW->overrideredirect($nodecor);
 $frame = $MW->Frame->pack(-expand => 'true', -fill => 'both');
 $canvas = $frame->Canvas(-width  => "48",
                          -height => "48",
@@ -448,7 +453,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l]\n";
+	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l] [-n]\n";
 }
 
 #

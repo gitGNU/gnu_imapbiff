@@ -2,6 +2,7 @@ Version 1.1   - Added login/logout mode for every check in addition to
                 permanent connection.
               - Support for alternative config file
               - Support for custom port
+              - Support to override window manager decoration
               - Improved config file reader routine
               - Updated to GPL v3
 

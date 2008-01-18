@@ -37,6 +37,7 @@ password <your password>
 nobeep 
 use_ssl (if you want to connect over SSL)
 login
+nodecor (overrides window manager frame/decoration)
 
 It is recommended to not store your password in the file, and rather let
 imapbiff bring up a window to prompt you for your password.
@@ -78,6 +79,9 @@ options:
   Login/logout mode: Login and logout from server for each check, recommended
   for long sleep times (more than 15 minutes). This is the same as "login"
   config option.
+-n
+  Overrides window manager frame/decoration. Equivalent to "nodecor" config 
+  option.
 
 While imapbiff is running, you can use the mouse buttons for the folllowing:
 
