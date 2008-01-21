@@ -38,6 +38,7 @@ nobeep
 use_ssl (if you want to connect over SSL)
 login
 nodecor (overrides window manager frame/decoration)
+pos XxY (initial X,Y position)
 
 It is recommended to not store your password in the file, and rather let
 imapbiff bring up a window to prompt you for your password.
