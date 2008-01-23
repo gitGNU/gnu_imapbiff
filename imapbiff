@@ -131,6 +131,7 @@ $canvas->create( "window", "0", "0",
                 );
 define_pixmaps();
 $button->bind("<Button-3>", \&check_now);
+$button->bind("<Button-2>", \&exit);
 $button->configure(-image => $down);
 $current = \$down;
 $repeat  = $button->repeat(1000, \&update);

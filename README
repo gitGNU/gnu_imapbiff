@@ -86,14 +86,16 @@ options:
 
 While imapbiff is running, you can use the mouse buttons for the folllowing:
 
-Button 1: click on the pixmap with button 1 to lower the mailbox flag, and
-remember the current number of unseen messages in your mailbox.  If any new 
-messages come, the flag will go up again.  If imapbiff sees that you have
-read the messages, it will automatically lower the threshold so that you
-are notified when new messages arrive.
+Button 1 (left): click on the pixmap with button 1 to lower the mailbox
+flag, and remember the current number of unseen messages in your mailbox. 
+If any new messages come, the flag will go up again.  If imapbiff sees that
+you have read the messages, it will automatically lower the threshold so
+that you are notified when new messages arrive.
 
-Button 2: click on the pixmap with button 2 to initiate an immediate check of
-your mailbox.  
+Button 2 (middle): click on the pixmap with button 2 to exit from imapbiff.
+
+Button 3 (right): click on the pixmap with button 3 to initiate an immediate
+check of your mailbox.
 
 Issues
 ------
