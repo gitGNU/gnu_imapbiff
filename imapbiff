@@ -46,6 +46,7 @@ my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
 my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y);
+my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
 $prog = $0;
 $prog =~ s,.*/,,g;
 $conffile = "$ENV{'HOME'}/.imapbiffrc";
@@ -63,6 +64,12 @@ $password  = 0;
 $login_o   = 0;
 $nodecor   = 0;
 
+$png_up       = 'up.png';
+$png_down     = 'down.png';
+$png_up_ssl   = 'up_ssl.png';
+$png_down_ssl = 'down_ssl.png';
+$png_chk      = 'check.png';
+
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
@@ -71,17 +78,22 @@ $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
 	while(<RC>) {
-		$host     = $1 if /^host\s+(\S+)/;
-                $port     = $1 if /^port\s+(\d+)/;
-		$user     = $1 if /^user\s+(\S+)/;
-		$sleep    = $1 if /^sleep\s+(\d+)/;
-		$password = $1 if /^password\s+(\d+)/;
-                $pos_x    = $1 if /^pos\s+(\d+)x(\d+)/;
-                $pos_y    = $2 if /^pos\s+(\d+)x(\d+)/;
-		$beep     = 0  if /^nobeep/;
-		$use_ssl  = 1  if /^use_ssl/;
-		$login_o  = 1  if /^login/;
-                $nodecor  = 1  if /^nodecor/;
+		$host         = $1 if /^host\s+(\S+)/;
+                $port         = $1 if /^port\s+(\d+)/;
+		$user         = $1 if /^user\s+(\S+)/;
+		$sleep        = $1 if /^sleep\s+(\d+)/;
+		$password     = $1 if /^password\s+(\d+)/;
+                $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
+                $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
+		$beep         = 0  if /^nobeep/;
+		$use_ssl      = 1  if /^use_ssl/;
+		$login_o      = 1  if /^login/;
+                $nodecor      = 1  if /^nodecor/;
+                $png_up       = $1 if /^png_mail\s+(\S+)/;
+                $png_down     = $1 if /^png_nomail\s+(\S+)/;
+                $png_up_ssl   = $1 if /^png_mail_ssl\s+(\S+)/;
+                $png_down_ssl = $1 if /^png_nomail_ssl\s+(\S+)/;
+                $png_chk      = $1 if /^png_checking\s+(\S+)/;
 	}
 	close(RC);
 }
@@ -465,16 +477,16 @@ sub help {
 #
 sub define_pixmaps {
 	if ($use_ssl) {
-		$up = $canvas->Photo(-format => 'png', -file => 'up_ssl.png');
+		$up = $canvas->Photo(-format => 'png', -file => $png_up_ssl);
 
-		$down = $canvas->Photo(-format => 'png', -file => 'down_ssl.png');
+		$down = $canvas->Photo(-format => 'png', -file => $png_down_ssl);
 
 	} else {
-		$up = $canvas->Photo(-format => 'png', -file => 'up.png');
+		$up = $canvas->Photo(-format => 'png', -file => $png_up);
 
-		$down = $canvas->Photo(-format => 'png', -file => 'down.png');
+		$down = $canvas->Photo(-format => 'png', -file => $png_down);
 	}
-	$checking = $canvas->Photo(-format => 'png', -file => 'check.png');
+	$checking = $canvas->Photo(-format => 'png', -file => $png_chk);
 
 	return 1;
 }

@@ -39,6 +39,11 @@ use_ssl (if you want to connect over SSL)
 login
 nodecor (overrides window manager frame/decoration)
 pos XxY (initial X,Y position)
+png_checking   PNG icon while checking (default: check.png)
+png_mail       PNG icon when there is new mail (default: up.png)
+png_nomail     PNG icon when there is no new mail (default: down.png)
+png_mail_ssl   PNG icon when there is new mail and ssl is enabled (default: up_ssl.png)
+png_nomail_ssl PNG icon when there is no new mail and ssl is enabled (default: down_ssl.png)
 
 It is recommended to not store your password in the file, and rather let
 imapbiff bring up a window to prompt you for your password.
