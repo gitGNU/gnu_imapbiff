@@ -43,7 +43,7 @@ $SIG{'TERM'} = 'cleanup';
 # Global variables.
 #
 my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
-my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
+my ($user,$password,$logged_in,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y);
 my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
