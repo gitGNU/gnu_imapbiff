@@ -27,7 +27,8 @@ use Getopt::Std;
 use POSIX;
 use Tk;
 use Tk::PNG;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n);
+use Tk::Balloon;
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n $opt_t);
 
 #
 # Set up signal handling.
@@ -45,7 +46,7 @@ $SIG{'TERM'} = 'cleanup';
 my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
 my ($user,$password,$logged_in,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
-my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom);
+my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
 my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
 $prog = $0;
 $prog =~ s,.*/,,g;
@@ -63,6 +64,9 @@ $logged_in = 0;
 $password  = 0;
 $login_o   = 0;
 $nodecor   = 0;
+$tip       = 0;
+$tip_seen  = 0;
+$new_messages = 0;
 
 $png_up       = 'up.png';
 $png_down     = 'down.png';
@@ -73,7 +77,7 @@ $png_chk      = 'check.png';
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:c:p:dqeln");
+help() unless getopts("h:u:s:c:p:dqelnt");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
@@ -89,6 +93,7 @@ if ( -f $conffile) {
 		$use_ssl      = 1  if /^use_ssl/;
 		$login_o      = 1  if /^login/;
                 $nodecor      = 1  if /^nodecor/;
+                $tip          = 1  if /^tip/;
                 $png_up       = $1 if /^png_mail\s+(\S+)/;
                 $png_down     = $1 if /^png_nomail\s+(\S+)/;
                 $png_up_ssl   = $1 if /^png_mail_ssl\s+(\S+)/;
@@ -109,6 +114,7 @@ $sleep   = 120 if (! $sleep);
 $beep    = 0 if ($opt_q);
 $login_o = 1 if ($opt_l);
 $nodecor = 1 if ($opt_n);
+$tip     = 1 if ($opt_t);
 $sleepms = $sleep * 1000;
 help() if (! $host);
 if ($use_ssl) {
@@ -148,6 +154,7 @@ define_pixmaps();
 $button->bind("<Button-3>", \&check_now);
 $button->bind("<Button-2>", \&exit);
 $button->configure(-image => $down);
+$inf=$MW->Balloon(-background=>'yellow') if $tip;
 $current = \$down;
 $repeat  = $button->repeat(1000, \&update);
 print STDERR "repeat set to 1sec for now.\n" if $opt_d;
@@ -198,7 +205,13 @@ sub update {
 	if ($new_messages >= 0) {
 		print STDERR "You have $new_messages new message(s)\n" if $opt_d;
 	}
+        if ($tip_seen>$new_messages)
+        {
+          $tip_seen = $new_messages;
+          print STDERR "seen (tip) set to $tip_seen\n" if $opt_d;
+        }
 	$button->configure(-image => $$current);
+        $inf->attach($button,-initwait=>0,-balloonmsg=>($new_messages-$tip_seen)) if $tip;
 	return 1;
 }
 
@@ -344,6 +357,9 @@ sub down {
 	$current  = \$down;
 	$baseline = $new_messages if ($new_messages);
 	print STDERR "baseline set to $baseline\n" if $opt_d;
+        $tip_seen = $baseline;
+	print STDERR "seen (tip) set to $tip_seen\n" if $opt_d;
+        $inf->attach($button,-initwait=>0,-balloonmsg=>($new_messages-$tip_seen)) if $tip;
 	return 1;
 }
 
