@@ -36,6 +36,7 @@ sleep <number of seconds to sleep between checks>
 password <your password>
 nobeep 
 use_ssl (if you want to connect over SSL)
+verify_ssl (if you want to verify ssl server cert, by default cert/my-ca.pem)
 login
 nodecor (overrides window manager frame/decoration)
 pos XxY (initial X,Y position)
