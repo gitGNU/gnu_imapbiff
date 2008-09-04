@@ -41,12 +41,12 @@ ca_cert <file> (file with CA certificates for SSL, default: cert/my-ca.pem)
 ca_path <path> (path for CA certificate files for SSL, default: default ca/)
 login
 nodecor (overrides window manager frame/decoration)
-pos XxY (initial X,Y position)
-png_checking   PNG icon while checking (default: check.png)
-png_mail       PNG icon when there is new mail (default: up.png)
-png_nomail     PNG icon when there is no new mail (default: down.png)
-png_mail_ssl   PNG icon when there is new mail and ssl is enabled (default: up_ssl.png)
-png_nomail_ssl PNG icon when there is no new mail and ssl is enabled (default: down_ssl.png)
+pos <X>x<Y> (initial X,Y position)
+png_checking   <file> (PNG icon while checking, default: check.png)
+png_mail       <file> (PNG icon when there is new mail, default: up.png)
+png_nomail     <file> (PNG icon when there is no new mail, default: down.png)
+png_mail_ssl   <file> (PNG icon when there is new mail and ssl is enabled, default: up_ssl.png)
+png_nomail_ssl <file> (PNG icon when there is no new mail and ssl is enabled, default: down_ssl.png)
 
 It is recommended to not store your password in the file, and rather let
 imapbiff bring up a window to prompt you for your password.
