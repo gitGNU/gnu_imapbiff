@@ -19,7 +19,7 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Copyright 2000 Michael Arndt
-# Copyright 2007 Enrique D. Bosch 'presi' (improvements)
+# Copyright 2007,2008 Enrique D. Bosch 'presi' (improvements from version 1.1 and later)
 
 use strict;
 use IO::Socket;

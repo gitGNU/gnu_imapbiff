@@ -1,4 +1,4 @@
-Current Version: 1.1
+Current Version: 2.0
 
 What is imapbiff?
 -----------------
@@ -9,6 +9,9 @@ will display a mailbox icon with the flag lowered.  When it detects new
 messages in your IMAP Inbox, it will beep and raise the flag.  Whenever it is
 querying the IMAP server, a "?" is displayed to indicate that it is checking
 for messages.
+
+Since version 2.0 there is support for custom png files as icons and other
+improvements.
 
 Requirements
 ------------
@@ -39,8 +42,9 @@ use_ssl (if you want to connect over SSL)
 verify_ssl (if you want to verify ssl server certificates)
 ca_cert <file> (file with CA certificates for SSL, default: cert/my-ca.pem)
 ca_path <path> (path for CA certificate files for SSL, default: default ca/)
-login
+login (login/logout mode for every check)
 nodecor (overrides window manager frame/decoration)
+tip (add a tip [popup] miniwindow shows number of messages when mouse is over)
 pos <X>x<Y> (initial X,Y position)
 png_checking   <file> (PNG icon while checking, default: check.png)
 png_mail       <file> (PNG icon when there is new mail, default: up.png)
@@ -91,6 +95,9 @@ options:
 -n
   Overrides window manager frame/decoration. Equivalent to "nodecor" config 
   option.
+-t
+  Add a popup small window when mouse is over that shows number of unread 
+  mails. Equivalent to "tip" config option.
 
 While imapbiff is running, you can use the mouse buttons for the folllowing:
 
@@ -122,7 +129,7 @@ Author and Homepage
 Author: Michael Arndt
 Email: marndt@bulldog.tzo.org
 Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
-Improvements (version 1.1): Enrique D. Bosch <presidev at gmail.com>
+Version 2.0: Enrique D. Bosch <presidev at gmail.com>
 
 Thanks you's:
 -------------

@@ -1,3 +1,7 @@
+Version 2.0   - Support for custom PNG icons
+              - Support for tips (with number of unread messages)
+              - Support for checking SSL site certificates
+
 Version 1.1   - Added login/logout mode for every check in addition to 
                 permanent connection.
               - Support for alternative config file
