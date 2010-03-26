@@ -171,6 +171,7 @@ MainLoop;
 #
 sub update {
 	my ($new_messages);
+	my $passcod = 1;
 	$button->configure(-image => $checking);
 	DoOneEvent;
 	DoOneEvent;
@@ -185,8 +186,8 @@ sub update {
 		$button->afterCancel($repeat);
 		$repeat = 0;
 		while (! $logged_in) {
-			if (!$password) { get_password(); }
-			login();
+			if (!$password) { get_password($passcod); }
+			$passcod = login();
 		}
 		$new_messages = check_imap();
 		$repeat = $button->repeat($sleepms, \&update);
@@ -286,6 +287,7 @@ sub setup_socket {
 sub login {
 	my ($response,$success);
 	$logged_in = 0;
+	my $salir = 0;
 	# Set an alarm in case we can not connect or get hung.  Older versions
 	# the IO::Socket perl module caused errors with the alarm we set before
 	# setting up the socket.  If this program dies in debug mode saying:
@@ -298,6 +300,7 @@ sub login {
 			($success,$response) = receive();
 			if (! $success || $response =~ /fail|BAD/) {
 				$password=0;
+				$salir=1;
 				return 0;
 			}
 			last if $response =~ /LOGIN|OK/;
@@ -305,6 +308,7 @@ sub login {
 		$logged_in = 1;
 		alarm 0;
 	};
+	if ($salir) { return -1; }
 	if ($@) {
 		alarm 0;
 		if ($@ =~ /timeout/) {
@@ -373,12 +377,14 @@ sub down {
 #
 sub get_password {
 	my ($w1,$entry);
+	my $bad='';
+	if ($_[0]==-1) { $bad="Wrong password\n"; }
 	$w1 = $MW->Toplevel;
 	$w1->Message(-bg  => "black",
                  -fg      => "green",
                  -width   => "400",
                  -justify => "center",
-                 -text    => "Enter password for\n$user at $host",
+                 -text    => "${bad}Enter password for\n$user at $host",
                  )->pack(-side => 'top', -fill => 'both');
 	$entry = $w1->Entry(-relief=>"sunken",
                     -bg    => "grey",
