@@ -296,16 +296,13 @@ sub login {
 		send_data("A001 LOGIN \"$user\" \"$password\"","\"$user\"");
 		while (1) {
 			($success,$response) = receive();
-			if (! $success) {
+			if (! $success || $response =~ /fail|BAD/) {
+				$password=0;
 				return 0;
 			}
 			last if $response =~ /LOGIN|OK/;
 		}
-		if ($response =~ /fail|BAD/) {
-			return 0;
-		} else {
-			$logged_in = 1;
-		}
+		$logged_in = 1;
 		alarm 0;
 	};
 	if ($@) {
