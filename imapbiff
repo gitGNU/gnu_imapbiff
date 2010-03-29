@@ -158,7 +158,7 @@ $canvas->create( "window", "0", "0",
                 );
 define_pixmaps();
 $button->bind("<Button-3>", \&check_now);
-$button->bind("<Button-2>", \&exit);
+$button->bind("<Button-2>", \&cleanup);
 $button->configure(-image => $down);
 $inf=$MW->Balloon(-background=>'yellow') if $tip;
 $current = \$down;
@@ -397,7 +397,7 @@ sub get_password {
                 -padx     => 20,
                )->pack(-side => 'right');
         $w1->Button(-text => "Cancel",
-                -command  => "exit",
+                -command  => \&cleanup,
                 -padx     => 20,
                )->pack(-side => 'left');
 	$MW->waitVariable(\$password);
@@ -491,12 +491,12 @@ sub logout
 }
 
 #
-# Subroutine to clean up and exit if we are signalled.
+# Subroutine to clean up and exit if we are signalled or canceled
 #
 sub cleanup {
         logout();
-	print STDERR "Exiting by user request.\n";
-	exit;
+	print STDERR "Exiting by user request.\n" if $opt_d;
+	POSIX::_exit(0);
 }
 
 #
