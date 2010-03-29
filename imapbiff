@@ -394,7 +394,12 @@ sub get_password {
                    )->pack(-side => 'top');
 	$w1->Button(-text => "OK",
                 -command  => sub { $password=$entry->get; $w1->destroy },
-               )->pack(-side => 'bottom');
+                -padx     => 20,
+               )->pack(-side => 'right');
+        $w1->Button(-text => "Cancel",
+                -command  => "exit",
+                -padx     => 20,
+               )->pack(-side => 'left');
 	$MW->waitVariable(\$password);
 	DoOneEvent;
 	return 1;
