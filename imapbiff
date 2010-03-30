@@ -400,6 +400,7 @@ sub get_password {
                 -command  => \&cleanup,
                 -padx     => 20,
                )->pack(-side => 'left');
+	$entry->focus;
 	$MW->waitVariable(\$password);
 	DoOneEvent;
 	return 1;
