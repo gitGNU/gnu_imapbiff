@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 #
-# Version 2.0
+# Version 2.1
 #
 # imapbiff: check for new mail in an imap account.
 #
@@ -20,6 +20,7 @@
 #
 # Copyright 2000 Michael Arndt
 # Copyright 2007,2008,2010 Enrique D. Bosch 'presi' (improvements from version 1.1 and later)
+# Copyright 2009,2010 Maik Nijhuis
 
 use strict;
 use IO::Socket;
@@ -28,7 +29,7 @@ use POSIX;
 use Tk;
 use Tk::PNG;
 use Tk::Balloon;
-use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n $opt_t);
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n $opt_t $opt_m $opt_k);
 
 #
 # Set up signal handling.
@@ -48,6 +49,7 @@ my ($user,$password,$logged_in,$login_o,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
 my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
+my ($mailbox,$showcheck);
 $prog = $0;
 $prog =~ s,.*/,,g;
 $conffile = "$ENV{'HOME'}/.imapbiffrc";
@@ -59,6 +61,7 @@ $host         = "";
 $handle       = 0;
 $baseline     = 0;
 $beep         = 1;
+$showcheck    = 1;
 $use_ssl      = 0;
 $verify_ssl   = 0;
 $ca_cert      = 'certs/my-ca.pem';
@@ -80,7 +83,7 @@ $png_chk      = 'check.png';
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("h:u:s:c:p:dqelnt");
+help() unless getopts("h:u:m:s:c:p:dqelntk");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
@@ -88,11 +91,13 @@ if ( -f $conffile) {
 		$host         = $1 if /^host\s+(\S+)/;
                 $port         = $1 if /^port\s+(\d+)/;
 		$user         = $1 if /^user\s+(\S+)/;
+		$mailbox      = $1 if /^mailbox\s+(\S+)/;
 		$sleep        = $1 if /^sleep\s+(\d+)/;
 		$password     = $1 if /^password\s+(\d+)/;
                 $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
                 $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
 		$beep         = 0  if /^nobeep/;
+		$showcheck    = 0  if /^noquestion/;
 		$use_ssl      = 1  if /^use_ssl/;
                 $verify_ssl   = 1  if /^verify_ssl/;
                 $ca_cert      = $1 if /^ca_cert\s+(\S+)/;
@@ -108,20 +113,23 @@ if ( -f $conffile) {
 	}
 	close(RC);
 }
-$use_ssl = 1 if ($opt_e);
-$host    = $opt_h if ($opt_h);
-$port    = $opt_p if ($opt_p);
-$port    = 993 if (!$port && $use_ssl);
-$port    = 143 if (!$port);
-$user    = $opt_u if ($opt_u);
-$user    = $ENV{'USER'} if (! $user);
-$sleep   = $opt_s if ($opt_s);
-$sleep   = 120 if (! $sleep);
-$beep    = 0 if ($opt_q);
-$login_o = 1 if ($opt_l);
-$nodecor = 1 if ($opt_n);
-$tip     = 1 if ($opt_t);
-$sleepms = $sleep * 1000;
+$use_ssl   = 1 if ($opt_e);
+$host      = $opt_h if ($opt_h);
+$port      = $opt_p if ($opt_p);
+$port      = 993 if (!$port && $use_ssl);
+$port      = 143 if (!$port);
+$user      = $opt_u if ($opt_u);
+$user      = $ENV{'USER'} if (! $user);
+$mailbox   = $opt_m if ($opt_m);
+$mailbox   = "INBOX" if (! $mailbox);
+$sleep     = $opt_s if ($opt_s);
+$sleep     = 120 if (! $sleep);
+$beep      = 0 if ($opt_q);
+$login_o   = 1 if ($opt_l);
+$nodecor   = 1 if ($opt_n);
+$tip       = 1 if ($opt_t);
+$showcheck = 0 if ($opt_k);
+$sleepms   = $sleep * 1000;
 help() if (! $host);
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
@@ -172,7 +180,7 @@ MainLoop;
 sub update {
 	my ($new_messages);
 	my $passcod = 1;
-	$button->configure(-image => $checking);
+	$button->configure(-image => $checking) if $showcheck;
 	DoOneEvent;
 	DoOneEvent;
 	while (! $handle) {
@@ -334,7 +342,7 @@ sub check_imap {
 	# IO module.
 	eval {
 		alarm 30;
-		send_data("A003 STATUS INBOX (UNSEEN)");
+		send_data("A003 STATUS $mailbox (UNSEEN)");
 		while (1) {
 			($success,$response) = receive();
 			if (! $success) {
@@ -504,7 +512,7 @@ sub cleanup {
 # Subroutine to print help screen and exit.
 #
 sub help {
-	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l] [-n]\n";
+	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-k] [-d] [-l] [-n]\n";
 }
 
 #
@@ -521,7 +529,7 @@ sub define_pixmaps {
 
 		$down = $canvas->Photo(-format => 'png', -file => $png_down);
 	}
-	$checking = $canvas->Photo(-format => 'png', -file => $png_chk);
+	$checking = $canvas->Photo(-format => 'png', -file => $png_chk) if $showcheck;
 
 	return 1;
 }

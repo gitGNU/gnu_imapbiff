@@ -1,3 +1,6 @@
+Version 2.1   - Add mailbox option (-m)
+              - Add noquestion option (-k)
+
 Version 2.0   - Support for custom PNG icons
               - Support for tips (with number of unread messages)
               - Support for checking SSL site certificates

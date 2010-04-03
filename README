@@ -1,4 +1,4 @@
-Current Version: 2.0
+Current Version: 2.1
 
 What is imapbiff?
 -----------------
@@ -35,9 +35,11 @@ file in your home directory.  The format of the .imapbiffrc file is:
 host <IMAP server hostname>
 port <port for connection>
 user <your user name on the IMAP server>
+mailbox <mailbox on the IMAP server>
 sleep <number of seconds to sleep between checks>
 password <your password>
-nobeep 
+nobeep
+noquestion
 use_ssl (if you want to connect over SSL)
 verify_ssl (if you want to verify ssl server certificates)
 ca_cert <file> (file with CA certificates for SSL, default: cert/my-ca.pem)
@@ -73,12 +75,17 @@ options:
 -q 
   quiet mode: do not beep when you have new messages.  Identical to having a
   line with "nobeep" on it in the .imapbiffrc file.
+-k
+  Disable showing the question mark when checking for new mail. Equivalent to 
+  "noquestion" config option.
 -h <host>
   host: use <host> as the IMAP server.  No default, this must be specified
   either in the .imapbiffrc or on the command line.
 -p <port>
   Port to connect to host. Same as "port" config option. If not given, 143 will
   be used as default and 993 if ssl enabled.
+-m <mailbox>
+  Check the IMAP mailbox <mailbox>. The default mailbox is INBOX.
 -s <sleep>
   sleep: sleep for <sleep> seconds between checks.  Defaults to 120 seconds.
 -u <user>
@@ -130,6 +137,7 @@ Author: Michael Arndt
 Email: marndt@bulldog.tzo.org
 Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
 Version 2.0: Enrique D. Bosch <presidev at gmail.com>
+Version 2.1: Maik Nijhuis <manyac at gmail.com>
 Project page: http://www.assembla.com/spaces/imapbiff
 
 Thanks you's:

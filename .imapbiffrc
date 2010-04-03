@@ -6,10 +6,12 @@ host imap-server.example.org
 #port 143
 user myname
 #password password # if not given, will be asked (recommended)
+#mailbox mymailbox # INBOX if not given
 use_ssl
 login
 sleep 600
-nobeep 
+nobeep
+#noquestion
 #pos 725x710
 #nodecor
 
