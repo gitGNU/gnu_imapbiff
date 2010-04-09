@@ -400,6 +400,7 @@ sub get_password {
                     -width => "30",
                     -show  => "*",
                    )->pack(-side => 'top');
+	$entry->bind('Tk::Entry','<Return>',sub { $password=$entry->get; $w1->destroy });
 	$w1->Button(-text => "OK",
                 -command  => sub { $password=$entry->get; $w1->destroy },
                 -padx     => 20,
