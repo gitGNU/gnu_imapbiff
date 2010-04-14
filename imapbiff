@@ -384,7 +384,7 @@ sub down {
 # Subroutine to get user's password.
 #
 sub get_password {
-	my ($w1,$entry);
+	my ($w1,$entry,$bok);
 	my $bad='';
 	if ($_[0]==-1) { $bad="Wrong password\n"; }
 	$w1 = $MW->Toplevel;
@@ -400,11 +400,11 @@ sub get_password {
                     -width => "30",
                     -show  => "*",
                    )->pack(-side => 'top');
-	$entry->bind('Tk::Entry','<Return>',sub { $password=$entry->get; $w1->destroy });
-	$w1->Button(-text => "OK",
+	$bok = $w1->Button(-text => "OK",
                 -command  => sub { $password=$entry->get; $w1->destroy },
                 -padx     => 20,
                )->pack(-side => 'right');
+	$entry->bind('Tk::Entry','<Return>',sub { $bok->invoke(); });
         $w1->Button(-text => "Cancel",
                 -command  => \&cleanup,
                 -padx     => 20,
