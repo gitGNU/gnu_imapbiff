@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 #
-# Version 2.1
+# Version 2.2
 #
 # imapbiff: check for new mail in an imap account.
 #
