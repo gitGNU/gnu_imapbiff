@@ -468,7 +468,7 @@ sub error {
 		            -command => sub { $wait=1; },
                		)->pack(-side => 'bottom');
 		$w1->Button(-text    => "Exit",
-		            -command => "exit",
+		            -command => \&cleanup,
                		)->pack(-side => 'bottom');
 		$MW->waitVariable(\$wait);
 		$w1->destroy;
