@@ -262,14 +262,22 @@ sub setup_socket {
                                                        SSL_ca_path     => $ca_path,
                                                        PeerAddr        => $host,
 			                               PeerPort        => $port,
-		                               	)
-			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		                               	);
+			if (!$handle)
+                        {    alarm 0;
+                             error("$prog: Can't connect to port $port on $host: $!",0);
+                             return;
+                        }
 		} else {
 			$handle = IO::Socket::INET->new(Proto    => "tcp",
 			                                PeerAddr => $host,
                                                         PeerPort => $port,
-		                               	)
-			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		                               	);
+			if (!$handle)
+                        {    alarm 0;
+                             error("$prog: Can't connect to port $port on $host: $!",0);
+                             return;
+                        }
 		}
 		$handle->autoflush(1);    # So output gets there right away.
 		print STDERR ".done\n" if $opt_d;
