@@ -160,14 +160,14 @@ if ( $png_up_w!=$png_down_w || $png_down_w!=$png_chk_w
 $MW = new MainWindow;
 $MW->title("imapbiff");
 $MW->iconname("imapbiff");
-$geom='58x58';
+$geom=($png_up_w+10).'x'.($png_up_h+10);
 if ($pos_x && $pos_y) { $geom .= "+$pos_x+$pos_y"; }
 $MW->wm("geometry", $geom);
 $MW->resizable(0,0);
 $MW->overrideredirect($nodecor);
 $frame = $MW->Frame->pack(-expand => 'true', -fill => 'both');
-$canvas = $frame->Canvas(-width  => "48",
-                         -height => "48",
+$canvas = $frame->Canvas(-width  => $png_up_w,
+                         -height => $png_up_h,
                          -bd     => 10,
                          -relief => "sunken",
                          )->pack(-expand=>'yes', -fill=>'both');
