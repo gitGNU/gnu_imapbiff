@@ -29,6 +29,7 @@ use POSIX;
 use Tk;
 use Tk::PNG;
 use Tk::Balloon;
+use Image::Size;
 use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n $opt_t $opt_m $opt_k);
 
 #
@@ -49,6 +50,7 @@ my ($user,$password,$logged_in,$login_o,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
 my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
+my ($png_up_w,$png_up_h,$png_down_w,$png_down_h,$png_chk_w,$png_chk_h);
 my ($mailbox,$showcheck);
 $prog = $0;
 $prog =~ s,.*/,,g;
@@ -134,6 +136,8 @@ help() if (! $host);
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
 	require IO::Socket::SSL;
+	$png_up = $png_up_ssl;
+	$png_down = $png_down_ssl;
 }
 
 #
@@ -145,6 +149,14 @@ if (! $opt_d) {
 	die "Couldn't fork: $!\n" unless defined($pid);
 	POSIX::setsid() or error("$prog: Can't start a new session: $!",1);
 }
+
+($png_up_w,   $png_up_h)   = imgsize($png_up);
+($png_down_w, $png_down_h) = imgsize($png_down);
+($png_chk_w,  $png_chk_h)  = imgsize($png_chk);
+if ( $png_up_w!=$png_down_w || $png_down_w!=$png_chk_w
+  || $png_up_h!=$png_down_h || $png_down_h!=$png_chk_h )
+{ die "Wrong image size"; }
+
 $MW = new MainWindow;
 $MW->title("imapbiff");
 $MW->iconname("imapbiff");
@@ -528,16 +540,8 @@ sub help {
 # Subroutine that puts PNG data into place.
 #
 sub define_pixmaps {
-	if ($use_ssl) {
-		$up = $canvas->Photo(-format => 'png', -file => $png_up_ssl);
-
-		$down = $canvas->Photo(-format => 'png', -file => $png_down_ssl);
-
-	} else {
-		$up = $canvas->Photo(-format => 'png', -file => $png_up);
-
-		$down = $canvas->Photo(-format => 'png', -file => $png_down);
-	}
+	$up = $canvas->Photo(-format => 'png', -file => $png_up);
+	$down = $canvas->Photo(-format => 'png', -file => $png_down);
 	$checking = $canvas->Photo(-format => 'png', -file => $png_chk) if $showcheck;
 
 	return 1;

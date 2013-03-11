@@ -16,6 +16,7 @@ improvements.
 Requirements
 ------------
 - perl.
+- The Image::Size perl module
 - The Tk perl module (DOES NOT come with most perl installations).
 - The Getopt module (comes with most perl installations).
 - The IO perl module (comes with most perl installations).
