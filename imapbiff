@@ -51,7 +51,7 @@ my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
 my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
 my ($png_up_w,$png_up_h,$png_down_w,$png_down_h,$png_chk_w,$png_chk_h);
-my ($mailbox,$showcheck);
+my ($mailbox,$showcheck,$size_not_same);
 $prog = $0;
 $prog =~ s,.*/,,g;
 $conffile = "$ENV{'HOME'}/.imapbiffrc";
@@ -152,10 +152,14 @@ if (! $opt_d) {
 
 ($png_up_w,   $png_up_h)   = imgsize($png_up);
 ($png_down_w, $png_down_h) = imgsize($png_down);
-($png_chk_w,  $png_chk_h)  = imgsize($png_chk);
-if ( $png_up_w!=$png_down_w || $png_down_w!=$png_chk_w
-  || $png_up_h!=$png_down_h || $png_down_h!=$png_chk_h )
-{ die "Wrong image size"; }
+if ($showcheck) 
+{
+  ($png_chk_w, $png_chk_h) = imgsize($png_chk);
+  $size_not_same=( $png_up_w!=$png_down_w || $png_down_w!=$png_chk_w 
+                   || $png_up_h!=$png_down_h || $png_down_h!=$png_chk_h );
+}
+else { $size_not_same=( $png_up_w!=$png_down_w || $png_up_h!=$png_down_h ); }
+if ($size_not_same) { die "Wrong image size"; }
 
 $MW = new MainWindow;
 $MW->title("imapbiff");
