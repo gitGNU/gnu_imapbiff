@@ -22,13 +22,13 @@ Current Version: 2.2
 
 What is imapbiff?
 -----------------
-imapbiff is a small perl/tk program that notifies you of new mail in an IMAP 
-mail account.  It only checks IMAP accounts, not local mail files or POP
-accounts.  When you do not have any unread messages in your IMAP Inbox, it
-will display a mailbox icon with the flag lowered.  When it detects new
-messages in your IMAP Inbox, it will beep and raise the flag.  Whenever it is
-querying the IMAP server, a "?" is displayed to indicate that it is checking
-for messages.
+imapbiff is a small perl/tk program that notifies you of new mail in an IMAP
+mail account. It looks like xbiff program. It only checks IMAP accounts,
+not local mail files or POP accounts. When you do not have any unread
+messages in your IMAP Inbox, it will display a mailbox icon with the flag
+lowered. When it detects new messages in your IMAP Inbox, it will beep and
+raise the flag. Whenever it is querying the IMAP server, a "?" is displayed
+to indicate that it is checking for messages.
 
 Since version 2.0 there is support for custom png files as icons and other
 improvements.
