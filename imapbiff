@@ -136,6 +136,8 @@ help() if (! $host);
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
 	require IO::Socket::SSL;
+	if ($verify_ssl) { $verify_ssl = IO::Socket::SSL->SSL_VERIFY_PEER; }
+        	    else { $verify_ssl = IO::Socket::SSL->SSL_VERIFY_NONE; }
 	$png_up = $png_up_ssl;
 	$png_down = $png_down_ssl;
 }
