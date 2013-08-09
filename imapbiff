@@ -95,7 +95,7 @@ if ( -f $conffile) {
 		$user         = $1 if /^user\s+(\S+)/;
 		$mailbox      = $1 if /^mailbox\s+(\S+)/;
 		$sleep        = $1 if /^sleep\s+(\d+)/;
-		$password     = $1 if /^password\s+(\d+)/;
+		$password     = $1 if /^password\s+(\S+)/;
                 $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
                 $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
 		$beep         = 0  if /^nobeep/;
