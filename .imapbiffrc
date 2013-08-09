@@ -3,11 +3,15 @@
 # or specified with -c option
 
 host imap-server.example.org
-#port 143
+#port 993
 user myname
 #password password # if not given, will be asked (recommended)
 #mailbox mymailbox # INBOX if not given
 use_ssl
+verify_ssl
+ca_path /etc/ssl/certs
+#ca_cert /etc/ssl/cert.pem
+#ca_cert /etc/ssl/certs/ca-certificates.crt
 login
 sleep 600
 nobeep
