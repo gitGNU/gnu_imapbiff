@@ -49,7 +49,7 @@ my ($host,$port,$handle,$baseline,$beep,$use_ssl,$verify_ssl,$ca_cert,$ca_path);
 my ($user,$password,$logged_in,$login_o,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
-my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
+my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_up_ssl_nv,$png_down_ssl_nv,$png_chk);
 my ($png_up_w,$png_up_h,$png_down_w,$png_down_h,$png_chk_w,$png_chk_h);
 my ($mailbox,$showcheck,$size_not_same);
 $prog = $0;
@@ -76,11 +76,13 @@ $tip          = 0;
 $tip_seen     = 0;
 $new_messages = 0;
 
-$png_up       = 'up.png';
-$png_down     = 'down.png';
-$png_up_ssl   = 'up_ssl.png';
-$png_down_ssl = 'down_ssl.png';
-$png_chk      = 'check.png';
+$png_up          = 'up.png';
+$png_down        = 'down.png';
+$png_up_ssl      = 'up_ssl.png';
+$png_down_ssl    = 'down_ssl.png';
+$png_up_ssl_nv   = 'up_ssl_nv.png';
+$png_down_ssl_nv = 'down_ssl_nv.png';
+$png_chk         = 'check.png';
 
 #
 # Get user supplied parameters.  The command line overrides any config file
@@ -90,28 +92,30 @@ $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
 	while(<RC>) {
-		$host         = $1 if /^host\s+(\S+)/;
-                $port         = $1 if /^port\s+(\d+)/;
-		$user         = $1 if /^user\s+(\S+)/;
-		$mailbox      = $1 if /^mailbox\s+(\S+)/;
-		$sleep        = $1 if /^sleep\s+(\d+)/;
-		$password     = $1 if /^password\s+(\S+)/;
-                $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
-                $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
-		$beep         = 0  if /^nobeep/;
-		$showcheck    = 0  if /^noquestion/;
-		$use_ssl      = 1  if /^use_ssl/;
-                $verify_ssl   = 1  if /^verify_ssl/;
-                $ca_cert      = $1 if /^ca_cert\s+(\S+)/;
-                $ca_path      = $1 if /^ca_path\s+(\S+)/;
-		$login_o      = 1  if /^login/;
-                $nodecor      = 1  if /^nodecor/;
-                $tip          = 1  if /^tip/;
-                $png_up       = $1 if /^png_mail\s+(\S+)/;
-                $png_down     = $1 if /^png_nomail\s+(\S+)/;
-                $png_up_ssl   = $1 if /^png_mail_ssl\s+(\S+)/;
-                $png_down_ssl = $1 if /^png_nomail_ssl\s+(\S+)/;
-                $png_chk      = $1 if /^png_checking\s+(\S+)/;
+		$host            = $1 if /^host\s+(\S+)/;
+		$port            = $1 if /^port\s+(\d+)/;
+		$user            = $1 if /^user\s+(\S+)/;
+		$mailbox         = $1 if /^mailbox\s+(\S+)/;
+		$sleep           = $1 if /^sleep\s+(\d+)/;
+		$password        = $1 if /^password\s+(\S+)/;
+		$pos_x           = $1 if /^pos\s+(\d+)x(\d+)/;
+		$pos_y           = $2 if /^pos\s+(\d+)x(\d+)/;
+		$beep            = 0  if /^nobeep/;
+		$showcheck       = 0  if /^noquestion/;
+		$use_ssl         = 1  if /^use_ssl/;
+		$verify_ssl      = 1  if /^verify_ssl/;
+		$ca_cert         = $1 if /^ca_cert\s+(\S+)/;
+		$ca_path         = $1 if /^ca_path\s+(\S+)/;
+		$login_o         = 1  if /^login/;
+		$nodecor         = 1  if /^nodecor/;
+		$tip             = 1  if /^tip/;
+		$png_up          = $1 if /^png_mail\s+(\S+)/;
+		$png_down        = $1 if /^png_nomail\s+(\S+)/;
+		$png_up_ssl      = $1 if /^png_mail_ssl\s+(\S+)/;
+		$png_down_ssl    = $1 if /^png_nomail_ssl\s+(\S+)/;
+		$png_up_ssl_nv   = $1 if /^png_mail_ssl_nv\s+(\S+)/;
+		$png_down_ssl_nv = $1 if /^png_nomail_ssl_nv\s+(\S+)/;
+		$png_chk         = $1 if /^png_checking\s+(\S+)/;
 	}
 	close(RC);
 }
@@ -136,10 +140,15 @@ help() if (! $host);
 if ($use_ssl) {
 	print STDERR "Using SSL.\n" if $opt_d;
 	require IO::Socket::SSL;
-	if ($verify_ssl) { $verify_ssl = IO::Socket::SSL->SSL_VERIFY_PEER; }
-        	    else { $verify_ssl = IO::Socket::SSL->SSL_VERIFY_NONE; }
-	$png_up = $png_up_ssl;
-	$png_down = $png_down_ssl;
+	if ($verify_ssl)
+	{    $verify_ssl = IO::Socket::SSL->SSL_VERIFY_PEER;
+	     $png_up = $png_up_ssl;
+	     $png_down = $png_down_ssl;
+	} else
+	{    $verify_ssl = IO::Socket::SSL->SSL_VERIFY_NONE;
+	     $png_up = $png_up_ssl_nv;
+	     $png_down = $png_down_ssl_nv;
+	}    
 }
 
 #

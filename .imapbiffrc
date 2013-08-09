@@ -15,8 +15,10 @@ nobeep
 #pos 725x710
 #nodecor
 
-png_checking   check.png
-png_mail       up.png
-png_nomail     down.png
-png_mail_ssl   up_ssl.png
-png_nomail_ssl down_ssl.png
+png_checking      check.png
+png_mail          up.png
+png_nomail        down.png
+png_mail_ssl      up_ssl.png
+png_nomail_ssl    down_ssl.png
+png_mail_ssl_nv   up_ssl_nv.png
+png_nomail_ssl_nv down_ssl_nv.png
