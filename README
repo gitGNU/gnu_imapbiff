@@ -63,8 +63,10 @@ nobeep
 noquestion
 use_ssl (if you want to connect over SSL)
 verify_ssl (if you want to verify ssl server certificates)
-ca_cert <file> (file with CA certificates for SSL, default: cert/my-ca.pem)
-ca_path <path> (path for CA certificate files for SSL, default: default ca/)
+ca_cert <file> (file with CA certificates for SSL, there is not default
+                ca_cert or ca_path must be defined for verify_ssl, if both, ca_cert is ignored)
+ca_path <path> (path for CA certificate files for SSL, there is not default
+                ca_cert or ca_path must be defined for verify_ssl, if both, ca_path is used)
 login (login/logout mode for every check)
 nodecor (overrides window manager frame/decoration)
 tip (add a tip [popup] miniwindow shows number of messages when mouse is over)
