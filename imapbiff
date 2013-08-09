@@ -293,7 +293,7 @@ sub setup_socket {
 			$handle = IO::Socket::SSL->new(%ssl_params);
 			if (!$handle)
                         {    alarm 0;
-                             error("$prog: Can't connect to port $port on $host: $!",0);
+                             error("$prog: Can't connect to port $port on $host: ".IO::Socket::SSL::errstr(),0);
                              return;
                         }
 		} else {
@@ -422,13 +422,17 @@ sub down {
 sub get_password {
 	my ($w1,$entry,$bok);
 	my $bad='';
+	my $nv='';
 	if ($_[0]==-1) { $bad="Wrong password\n"; }
+	if (!$use_ssl) { $nv="\nWARNING: INSECURE CONNECTION"; }
+	else { if ($verify_ssl!=IO::Socket::SSL->SSL_VERIFY_PEER)
+	         { $nv="\nWARNING: SSL CERTIFICATE NOT VERIFIED"; } }
 	$w1 = $MW->Toplevel;
 	$w1->Message(-bg  => "black",
                  -fg      => "green",
                  -width   => "400",
                  -justify => "center",
-                 -text    => "${bad}Enter password for\n$user at $host",
+                 -text    => "${bad}Enter password for\n$user at $host$nv",
                  )->pack(-side => 'top', -fill => 'both');
 	$entry = $w1->Entry(-relief=>"sunken",
                     -bg    => "grey",
