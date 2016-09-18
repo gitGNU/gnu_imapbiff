@@ -333,10 +333,28 @@ sub setup_socket {
 #
 # Subroutine to login to the mailbox.
 # 
-sub login {
+sub login
+{
+        my $ret = imap_command("A001 LOGIN \"$user\" \"$password\"",qr/LOGIN|OK/,'',"\"$user\"");
+        if ($ret == 1) { $logged_in = 1; }
+        return $ret;
+}
+
+#
+# Subroutine that does check of imap mailbox.
+#
+sub check_imap
+{
+        return
+        $new_messages = imap_command("A003 STATUS $mailbox (UNSEEN)",qr/STATUS\s+.*?\s+\(UNSEEN/,qr/\(UNSEEN\s+(\d+)\)/);
+}
+
+sub imap_command
+{
+        my ($command,$expected,$value,$block) = (@_);
 	my ($response,$success);
-	$logged_in = 0;
-	my $salir = 0;
+        my $ret = -1;
+        my $salir = 0;
 	# Set an alarm in case we can not connect or get hung.  Older versions
 	# the IO::Socket perl module caused errors with the alarm we set before
 	# setting up the socket.  If this program dies in debug mode saying:
@@ -344,17 +362,18 @@ sub login {
 	# IO module.
 	eval {
 		alarm 30;
-		send_data("A001 LOGIN \"$user\" \"$password\"","\"$user\"");
+		send_data($command,$block);
 		while (1) {
 			($success,$response) = receive();
 			if (! $success || $response =~ /fail|BAD/) {
 				$password=0;
 				$salir=1;
-				return 0;
+				return -1;
 			}
-			last if $response =~ /LOGIN|OK/;
+			last if $response =~ /$expected/;
 		}
-		$logged_in = 1;
+		if ($value) { ($ret) = $response =~ /$value/; }
+                       else { $ret = 1; }
 		alarm 0;
 	};
 	if ($salir) { return -1; }
@@ -362,49 +381,13 @@ sub login {
 		alarm 0;
 		if ($@ =~ /timeout/) {
 			alarm();
-			return 0;
+			return -1;
 		} else {
 			error("$prog: $@",0);
-			return 0; 
+			return -1; 
 		}
-	} 
-	return 1;
-}
-
-#
-# Subroutine that does check of imap mailbox.
-#
-sub check_imap {
-	my ($response,$success);
-	# Set an alarm in case we can not connect or get hung.  Older versions
-	# the IO::Socket perl module caused errors with the alarm we set before
-	# setting up the socket.  If this program dies in debug mode saying:
-	# "Alarm clock", then you can probably fix it by upgrading your perl
-	# IO module.
-	eval {
-		alarm 30;
-		send_data("A003 STATUS $mailbox (UNSEEN)");
-		while (1) {
-			($success,$response) = receive();
-			if (! $success) {
-				return "-1";
-			}
-			last if $response =~ /STATUS\s+.*?\s+\(UNSEEN/;
-		}
-		($new_messages) = $response =~ /\(UNSEEN\s+(\d+)\)/;
-		alarm 0;
-	};
-	if ($@) {
-		alarm 0;
-		if ($@ =~ /timeout/) {
-			alarm();
-			return "-1";
-		} else {
-			error("$prog: $@",0);
-			return "-1";
-		}
-	} 
-	return $new_messages;
+	}
+        return $ret;
 }
 
 #
