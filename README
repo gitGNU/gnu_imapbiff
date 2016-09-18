@@ -67,6 +67,7 @@ ca_cert <file> (file with CA certificates for SSL, there is not default
                 ca_cert or ca_path must be defined for verify_ssl, if both, ca_cert is ignored)
 ca_path <path> (path for CA certificate files for SSL, there is not default
                 ca_cert or ca_path must be defined for verify_ssl, if both, ca_path is used)
+ciphers <cipher_string> (string that defines the ciphers to be used in the SSL connection)
 login (login/logout mode for every check)
 nodecor (overrides window manager frame/decoration)
 tip (add a tip [popup] miniwindow shows number of messages when mouse is over)

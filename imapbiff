@@ -46,7 +46,7 @@ $SIG{'TERM'} = 'cleanup';
 # Global variables.
 #
 my ($host,$port,$handle,$baseline,$beep);
-my ($use_ssl,$verify_ssl,$verify_ssl_host,$ca_cert,$ca_path);
+my ($use_ssl,$verify_ssl,$verify_ssl_host,$ca_cert,$ca_path,$ciphers);
 my ($user,$password,$logged_in,$login_o,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
@@ -108,6 +108,7 @@ if ( -f $conffile) {
 		$verify_ssl      = 1  if /^verify_ssl/;
 		$ca_cert         = $1 if /^ca_cert\s+(\S+)/;
 		$ca_path         = $1 if /^ca_path\s+(\S+)/;
+		$ciphers         = $1 if /^ciphers\s+(\S+)/;
 		$login_o         = 1  if /^login/;
 		$nodecor         = 1  if /^nodecor/;
 		$tip             = 1  if /^tip/;
@@ -233,7 +234,7 @@ sub update {
 	}
         logout() if $login_o;
 	$new_messages = 0 if (! $new_messages);
-	if ($new_messages eq "-1") {
+	if ($new_messages == -1) {
 		print STDERR "check_imap returned an error, no updates.\n" if $opt_d;
 	} elsif ($baseline == $new_messages) {
 		print STDERR "no changes...\n" if $opt_d;
@@ -293,6 +294,7 @@ sub setup_socket {
 			               );
 			if ($ca_path)        { $ssl_params{'SSL_ca_path'}=$ca_path; }
 			else { if ($ca_cert) { $ssl_params{'SSL_ca_file'}=$ca_cert; } }
+			if ($ciphers)        { $ssl_params{'SSL_cipher_list'}=$ciphers; }
 			$handle = IO::Socket::SSL->new(%ssl_params);
 			if (!$handle)
                         {    alarm 0;
