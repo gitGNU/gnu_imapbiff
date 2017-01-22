@@ -46,7 +46,7 @@ $SIG{'TERM'} = 'cleanup';
 # Global variables.
 #
 my ($host,$port,$handle,$baseline,$beep);
-my ($use_ssl,$verify_ssl,$verify_ssl_host,$ca_cert,$ca_path,$ciphers);
+my ($use_ssl,$verify_ssl,$verify_ssl_host,$ca_cert,$ca_path,$client_cert,$client_key,$ciphers);
 my ($user,$password,$logged_in,$login_o,$new_messages,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
 my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
@@ -108,6 +108,8 @@ if ( -f $conffile) {
 		$verify_ssl      = 1  if /^verify_ssl/;
 		$ca_cert         = $1 if /^ca_cert\s+(\S+)/;
 		$ca_path         = $1 if /^ca_path\s+(\S+)/;
+		$client_cert     = $1 if /^client_cert\s+(\S+)/;
+		$client_key      = $1 if /^client_key\s+(\S+)/;
 		$ciphers         = $1 if /^ciphers\s+(\S+)/;
 		$login_o         = 1  if /^login/;
 		$nodecor         = 1  if /^nodecor/;
@@ -295,6 +297,11 @@ sub setup_socket {
 			if ($ca_path)        { $ssl_params{'SSL_ca_path'}=$ca_path; }
 			else { if ($ca_cert) { $ssl_params{'SSL_ca_file'}=$ca_cert; } }
 			if ($ciphers)        { $ssl_params{'SSL_cipher_list'}=$ciphers; }
+			if ($client_cert && $client_key)
+			{
+				$ssl_params{'SSL_cert_file'}=$client_cert;
+				$ssl_params{'SSL_key_file'}=$client_key;
+			 }
 			$handle = IO::Socket::SSL->new(%ssl_params);
 			if (!$handle)
                         {    alarm 0;
