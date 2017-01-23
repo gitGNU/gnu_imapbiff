@@ -301,7 +301,7 @@ sub setup_socket {
 			{
 				$ssl_params{'SSL_cert_file'}=$client_cert;
 				$ssl_params{'SSL_key_file'}=$client_key;
-			 }
+			}
 			$handle = IO::Socket::SSL->new(%ssl_params);
 			if (!$handle)
                         {    alarm 0;
